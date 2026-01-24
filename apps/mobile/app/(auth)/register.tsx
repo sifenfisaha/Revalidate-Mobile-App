@@ -11,9 +11,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useForm, Controller, type SubmitHandler, type Resolver } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { registerSchema, type RegisterInput, type Role } from "@/validation/schema";
 import "../global.css";
 
-const roles = [
+const roles: { value: Role; label: string }[] = [
     { value: "doctor", label: "Doctor / GP" },
     { value: "nurse", label: "Nurse / Midwife" },
     { value: "pharmacist", label: "Pharmacist" },
@@ -24,20 +27,33 @@ const roles = [
 export default function Register() {
     const router = useRouter();
     const [isDark, setIsDark] = useState(false);
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
-    const [selectedRole, setSelectedRole] = useState<string | null>(null);
     const [showRoleDropdown, setShowRoleDropdown] = useState(false);
-    const [termsAccepted, setTermsAccepted] = useState(false);
-    const [marketingOptIn, setMarketingOptIn] = useState(false);
 
-    const handleSubmit = () => {
-        // Handle form submission
-        console.log({ email, password, role: selectedRole, termsAccepted, marketingOptIn });
+    const {
+        control,
+        handleSubmit,
+        setValue,
+        watch,
+        formState: { errors },
+    } = useForm<RegisterInput>({
+        resolver: zodResolver(registerSchema) as Resolver<RegisterInput>,
+        defaultValues: {
+            email: "",
+            password: "",
+            termsAccepted: false,
+            marketingOptIn: false,
+        },
+    });
+
+    const watchedRole = watch("role");
+    const selectedRoleLabel = roles.find((r) => r.value === watchedRole)?.label ?? "Choose your profession";
+
+    const onSubmit: SubmitHandler<RegisterInput> = (data) => {
+        console.log("Register form submitted:", data);
     };
 
-    const selectedRoleLabel = roles.find((r) => r.value === selectedRole)?.label || "Choose your profession";
+    const onFormSubmit = handleSubmit(onSubmit);
 
     return (
         <SafeAreaView
@@ -97,36 +113,48 @@ export default function Register() {
                             >
                                 Work Email Address
                             </Text>
-                            <View className="relative">
-                                <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                    <MaterialIcons
-                                        name="mail"
-                                        size={22}
-                                        color={isDark ? "#6B7280" : "#9CA3AF"}
-                                    />
-                                </View>
-                                <TextInput
-                                    className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
-                                        isDark
-                                            ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                            : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                    }`}
-                                    style={{
-                                        shadowColor: isDark ? "#000" : "#000",
-                                        shadowOffset: { width: 0, height: 2 },
-                                        shadowOpacity: isDark ? 0.1 : 0.05,
-                                        shadowRadius: 4,
-                                        elevation: 2,
-                                    }}
-                                    placeholder="e.g. name@nhs.net"
-                                    placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
+                            <Controller
+                                control={control}
+                                name="email"
+                                render={({ field: { value, onChange, onBlur } }) => (
+                                    <View className="relative">
+                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                            <MaterialIcons
+                                                name="mail"
+                                                size={22}
+                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                            />
+                                        </View>
+                                        <TextInput
+                                            className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
+                                                isDark
+                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                            } ${errors.email ? "border-red-500" : ""}`}
+                                            style={{
+                                                shadowColor: isDark ? "#000" : "#000",
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: isDark ? 0.1 : 0.05,
+                                                shadowRadius: 4,
+                                                elevation: 2,
+                                            }}
+                                            placeholder="e.g. name@nhs.net"
+                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                            value={value}
+                                            onChangeText={onChange}
+                                            onBlur={onBlur}
+                                            keyboardType="email-address"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                    </View>
+                                )}
+                            />
+                            {errors.email && (
+                                <Text className="text-red-500 text-sm mt-1.5">
+                                    {errors.email.message}
+                                </Text>
+                            )}
                         </View>
 
                         {/* Password Input */}
@@ -136,46 +164,58 @@ export default function Register() {
                             >
                                 Create Password
                             </Text>
-                            <View className="relative">
-                                <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                    <MaterialIcons
-                                        name="lock"
-                                        size={22}
-                                        color={isDark ? "#6B7280" : "#9CA3AF"}
-                                    />
-                                </View>
-                                <TextInput
-                                    className={`w-full pl-12 pr-12 py-4 rounded-2xl ${
-                                        isDark
-                                            ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                            : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                    }`}
-                                    style={{
-                                        shadowColor: isDark ? "#000" : "#000",
-                                        shadowOffset: { width: 0, height: 2 },
-                                        shadowOpacity: isDark ? 0.1 : 0.05,
-                                        shadowRadius: 4,
-                                        elevation: 2,
-                                    }}
-                                    placeholder="At least 8 characters"
-                                    placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                    value={password}
-                                    onChangeText={setPassword}
-                                    secureTextEntry={!showPassword}
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                                <Pressable
-                                    className="absolute inset-y-0 right-0 pr-4 flex items-center justify-center z-10"
-                                    onPress={() => setShowPassword(!showPassword)}
-                                >
-                                    <MaterialIcons
-                                        name={showPassword ? "visibility-off" : "visibility"}
-                                        size={22}
-                                        color={isDark ? "#6B7280" : "#9CA3AF"}
-                                    />
-                                </Pressable>
-                            </View>
+                            <Controller
+                                control={control}
+                                name="password"
+                                render={({ field: { value, onChange, onBlur } }) => (
+                                    <View className="relative">
+                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                            <MaterialIcons
+                                                name="lock"
+                                                size={22}
+                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                            />
+                                        </View>
+                                        <TextInput
+                                            className={`w-full pl-12 pr-12 py-4 rounded-2xl ${
+                                                isDark
+                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                            } ${errors.password ? "border-red-500" : ""}`}
+                                            style={{
+                                                shadowColor: isDark ? "#000" : "#000",
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: isDark ? 0.1 : 0.05,
+                                                shadowRadius: 4,
+                                                elevation: 2,
+                                            }}
+                                            placeholder="At least 8 characters"
+                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                            value={value}
+                                            onChangeText={onChange}
+                                            onBlur={onBlur}
+                                            secureTextEntry={!showPassword}
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                        <Pressable
+                                            className="absolute inset-y-0 right-0 pr-4 flex items-center justify-center z-10"
+                                            onPress={() => setShowPassword(!showPassword)}
+                                        >
+                                            <MaterialIcons
+                                                name={showPassword ? "visibility-off" : "visibility"}
+                                                size={22}
+                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                            />
+                                        </Pressable>
+                                    </View>
+                                )}
+                            />
+                            {errors.password && (
+                                <Text className="text-red-500 text-sm mt-1.5">
+                                    {errors.password.message}
+                                </Text>
+                            )}
                         </View>
 
                         {/* Role Selector */}
@@ -191,7 +231,7 @@ export default function Register() {
                                     isDark
                                         ? "bg-slate-800/90 border border-slate-700/50"
                                         : "bg-white border border-gray-200 shadow-sm"
-                                }`}
+                                } ${errors.role ? "border-red-500" : ""}`}
                                 style={{
                                     shadowColor: isDark ? "#000" : "#000",
                                     shadowOffset: { width: 0, height: 2 },
@@ -209,7 +249,7 @@ export default function Register() {
                                 </View>
                                 <Text
                                     className={`flex-1 ${
-                                        selectedRole
+                                        watchedRole
                                             ? isDark
                                                 ? "text-white"
                                                 : "text-gray-900"
@@ -226,65 +266,87 @@ export default function Register() {
                                     color={isDark ? "#6B7280" : "#9CA3AF"}
                                 />
                             </Pressable>
+                            {errors.role && (
+                                <Text className="text-red-500 text-sm mt-1.5">
+                                    {errors.role.message}
+                                </Text>
+                            )}
                         </View>
 
                         {/* Checkboxes */}
                         <View className="gap-4 pt-3">
                             {/* Terms Checkbox */}
-                            <View className="flex-row items-start">
-                                <Pressable
-                                    onPress={() => setTermsAccepted(!termsAccepted)}
-                                    className={`h-6 w-6 rounded-full border-2 mr-3 mt-0.5 flex items-center justify-center ${
-                                        isDark
-                                            ? "border-slate-700 bg-slate-800"
-                                            : "border-gray-300 bg-white"
-                                    } ${termsAccepted ? "bg-primary border-primary" : ""}`}
-                                >
-                                    {termsAccepted && (
-                                        <MaterialIcons name="check" size={16} color="white" />
-                                    )}
-                                </Pressable>
-                                <View className="flex-1">
-                                    <Text
-                                        className={isDark ? "text-gray-400" : "text-gray-600"}
-                                    >
-                                        I agree to the{" "}
-                                        <Text className="text-primary font-medium">Terms of Service</Text>{" "}
-                                        and{" "}
-                                        <Text className="text-primary font-medium">Privacy Policy</Text>.
-                                    </Text>
-                                </View>
-                            </View>
+                            <Controller
+                                control={control}
+                                name="termsAccepted"
+                                render={({ field: { value, onChange } }) => (
+                                    <View className="flex-row items-start">
+                                        <Pressable
+                                            onPress={() => onChange(!value)}
+                                            className={`h-6 w-6 rounded-full border-2 mr-3 mt-0.5 flex items-center justify-center ${
+                                                isDark
+                                                    ? "border-slate-700 bg-slate-800"
+                                                    : "border-gray-300 bg-white"
+                                            } ${value ? "bg-primary border-primary" : ""} ${errors.termsAccepted ? "border-red-500" : ""}`}
+                                        >
+                                            {value && (
+                                                <MaterialIcons name="check" size={16} color="white" />
+                                            )}
+                                        </Pressable>
+                                        <View className="flex-1">
+                                            <Text
+                                                className={isDark ? "text-gray-400" : "text-gray-600"}
+                                            >
+                                                I agree to the{" "}
+                                                <Text className="text-primary font-medium">Terms of Service</Text>{" "}
+                                                and{" "}
+                                                <Text className="text-primary font-medium">Privacy Policy</Text>.
+                                            </Text>
+                                        </View>
+                                    </View>
+                                )}
+                            />
+                            {errors.termsAccepted && (
+                                <Text className="text-red-500 text-sm mt-1 ml-9">
+                                    {errors.termsAccepted.message}
+                                </Text>
+                            )}
 
                             {/* Marketing Checkbox */}
-                            <View className="flex-row items-start">
-                                <Pressable
-                                    onPress={() => setMarketingOptIn(!marketingOptIn)}
-                                    className={`h-6 w-6 rounded-full border-2 mr-3 mt-0.5 flex items-center justify-center ${
-                                        isDark
-                                            ? "border-slate-700 bg-slate-800"
-                                            : "border-gray-300 bg-white"
-                                    } ${marketingOptIn ? "bg-primary border-primary" : ""}`}
-                                >
-                                    {marketingOptIn && (
-                                        <MaterialIcons name="check" size={16} color="white" />
-                                    )}
-                                </Pressable>
-                                <View className="flex-1">
-                                    <Text
-                                        className={isDark ? "text-gray-400" : "text-gray-600"}
-                                    >
-                                        Receive monthly revalidation tips and UK healthcare updates via
-                                        email.
-                                    </Text>
-                                </View>
-                            </View>
+                            <Controller
+                                control={control}
+                                name="marketingOptIn"
+                                render={({ field: { value, onChange } }) => (
+                                    <View className="flex-row items-start">
+                                        <Pressable
+                                            onPress={() => onChange(!value)}
+                                            className={`h-6 w-6 rounded-full border-2 mr-3 mt-0.5 flex items-center justify-center ${
+                                                isDark
+                                                    ? "border-slate-700 bg-slate-800"
+                                                    : "border-gray-300 bg-white"
+                                            } ${value ? "bg-primary border-primary" : ""}`}
+                                        >
+                                            {value && (
+                                                <MaterialIcons name="check" size={16} color="white" />
+                                            )}
+                                        </Pressable>
+                                        <View className="flex-1">
+                                            <Text
+                                                className={isDark ? "text-gray-400" : "text-gray-600"}
+                                            >
+                                                Receive monthly revalidation tips and UK healthcare updates via
+                                                email.
+                                            </Text>
+                                        </View>
+                                    </View>
+                                )}
+                            />
                         </View>
 
                         {/* Submit Button */}
                         <View className="pt-6">
                             <Pressable
-                                onPress={handleSubmit}
+                                onPress={onFormSubmit}
                                 className="w-full bg-primary py-4 rounded-2xl active:opacity-90 flex-row justify-center items-center gap-2 overflow-hidden"
                                 style={{
                                     shadowColor: "#2563eb",
@@ -425,11 +487,11 @@ export default function Register() {
                                 <TouchableOpacity
                                     key={role.value}
                                     onPress={() => {
-                                        setSelectedRole(role.value);
+                                        setValue("role", role.value);
                                         setShowRoleDropdown(false);
                                     }}
                                     className={`py-4 px-4 rounded-xl mb-2 ${
-                                        selectedRole === role.value
+                                        watchedRole === role.value
                                             ? "bg-primary/10"
                                             : isDark
                                             ? "bg-slate-700"
@@ -438,7 +500,7 @@ export default function Register() {
                                 >
                                     <Text
                                         className={`${
-                                            selectedRole === role.value
+                                            watchedRole === role.value
                                                 ? "text-primary font-semibold"
                                                 : isDark
                                                 ? "text-white"

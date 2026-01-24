@@ -9,19 +9,27 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { loginSchema, type LoginInput } from "@/validation/schema";
 import "../global.css";
 
 export default function Login() {
     const router = useRouter();
     const [isDark, setIsDark] = useState(false);
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
 
-    const handleSubmit = () => {
-        // Handle form submission
-        console.log({ email, password });
-        // Redirect to onboarding
+    const {
+        control,
+        handleSubmit,
+        formState: { errors },
+    } = useForm<LoginInput>({
+        resolver: zodResolver(loginSchema),
+        defaultValues: { email: "", password: "" },
+    });
+
+    const onSubmit = (data: LoginInput) => {
+        console.log("Login form submitted:", data);
         router.replace("/(onboarding)");
     };
 
@@ -83,36 +91,48 @@ export default function Login() {
                             >
                                 Work Email Address
                             </Text>
-                            <View className="relative">
-                                <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                    <MaterialIcons
-                                        name="mail"
-                                        size={22}
-                                        color={isDark ? "#6B7280" : "#9CA3AF"}
-                                    />
-                                </View>
-                                <TextInput
-                                    className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
-                                        isDark
-                                            ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                            : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                    }`}
-                                    style={{
-                                        shadowColor: isDark ? "#000" : "#000",
-                                        shadowOffset: { width: 0, height: 2 },
-                                        shadowOpacity: isDark ? 0.1 : 0.05,
-                                        shadowRadius: 4,
-                                        elevation: 2,
-                                    }}
-                                    placeholder="e.g. name@nhs.net"
-                                    placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                    value={email}
-                                    onChangeText={setEmail}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                            </View>
+                            <Controller
+                                control={control}
+                                name="email"
+                                render={({ field: { value, onChange, onBlur } }) => (
+                                    <View className="relative">
+                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                            <MaterialIcons
+                                                name="mail"
+                                                size={22}
+                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                            />
+                                        </View>
+                                        <TextInput
+                                            className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
+                                                isDark
+                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                            } ${errors.email ? "border-red-500" : ""}`}
+                                            style={{
+                                                shadowColor: isDark ? "#000" : "#000",
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: isDark ? 0.1 : 0.05,
+                                                shadowRadius: 4,
+                                                elevation: 2,
+                                            }}
+                                            placeholder="e.g. name@nhs.net"
+                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                            value={value}
+                                            onChangeText={onChange}
+                                            onBlur={onBlur}
+                                            keyboardType="email-address"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                    </View>
+                                )}
+                            />
+                            {errors.email && (
+                                <Text className="text-red-500 text-sm mt-1.5">
+                                    {errors.email.message}
+                                </Text>
+                            )}
                         </View>
 
                         {/* Password Input */}
@@ -129,52 +149,64 @@ export default function Login() {
                                     </Text>
                                 </Pressable>
                             </View>
-                            <View className="relative">
-                                <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                    <MaterialIcons
-                                        name="lock"
-                                        size={22}
-                                        color={isDark ? "#6B7280" : "#9CA3AF"}
-                                    />
-                                </View>
-                                <TextInput
-                                    className={`w-full pl-12 pr-12 py-4 rounded-2xl ${
-                                        isDark
-                                            ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                            : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                    }`}
-                                    style={{
-                                        shadowColor: isDark ? "#000" : "#000",
-                                        shadowOffset: { width: 0, height: 2 },
-                                        shadowOpacity: isDark ? 0.1 : 0.05,
-                                        shadowRadius: 4,
-                                        elevation: 2,
-                                    }}
-                                    placeholder="Enter your password"
-                                    placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                    value={password}
-                                    onChangeText={setPassword}
-                                    secureTextEntry={!showPassword}
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                                <Pressable
-                                    className="absolute inset-y-0 right-0 pr-4 flex items-center justify-center z-10"
-                                    onPress={() => setShowPassword(!showPassword)}
-                                >
-                                    <MaterialIcons
-                                        name={showPassword ? "visibility-off" : "visibility"}
-                                        size={22}
-                                        color={isDark ? "#6B7280" : "#9CA3AF"}
-                                    />
-                                </Pressable>
-                            </View>
+                            <Controller
+                                control={control}
+                                name="password"
+                                render={({ field: { value, onChange, onBlur } }) => (
+                                    <View className="relative">
+                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                            <MaterialIcons
+                                                name="lock"
+                                                size={22}
+                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                            />
+                                        </View>
+                                        <TextInput
+                                            className={`w-full pl-12 pr-12 py-4 rounded-2xl ${
+                                                isDark
+                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                            } ${errors.password ? "border-red-500" : ""}`}
+                                            style={{
+                                                shadowColor: isDark ? "#000" : "#000",
+                                                shadowOffset: { width: 0, height: 2 },
+                                                shadowOpacity: isDark ? 0.1 : 0.05,
+                                                shadowRadius: 4,
+                                                elevation: 2,
+                                            }}
+                                            placeholder="Enter your password"
+                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                            value={value}
+                                            onChangeText={onChange}
+                                            onBlur={onBlur}
+                                            secureTextEntry={!showPassword}
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                        <Pressable
+                                            className="absolute inset-y-0 right-0 pr-4 flex items-center justify-center z-10"
+                                            onPress={() => setShowPassword(!showPassword)}
+                                        >
+                                            <MaterialIcons
+                                                name={showPassword ? "visibility-off" : "visibility"}
+                                                size={22}
+                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                            />
+                                        </Pressable>
+                                    </View>
+                                )}
+                            />
+                            {errors.password && (
+                                <Text className="text-red-500 text-sm mt-1.5">
+                                    {errors.password.message}
+                                </Text>
+                            )}
                         </View>
 
                         {/* Submit Button */}
                         <View className="pt-6">
                             <Pressable
-                                onPress={handleSubmit}
+                                onPress={handleSubmit(onSubmit)}
                                 className="w-full bg-primary py-4 rounded-2xl active:opacity-90 flex-row justify-center items-center gap-2 overflow-hidden"
                                 style={{
                                     shadowColor: "#2563eb",

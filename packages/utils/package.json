@@ -1,0 +1,20 @@
+{
+  "name": "@revalidation-tracker/utils",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint . --ext .ts",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@revalidation-tracker/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "private": true
+}

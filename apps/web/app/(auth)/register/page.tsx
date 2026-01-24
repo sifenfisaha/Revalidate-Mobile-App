@@ -1,0 +1,21 @@
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
+export default function RegisterPage() {
+  return (
+    <div className="flex min-h-screen items-center justify-center p-8">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-2xl">Register</CardTitle>
+          <CardDescription>Create a new account</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <p className="text-muted-foreground">Registration form will appear here</p>
+            <Button className="w-full">Create Account</Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

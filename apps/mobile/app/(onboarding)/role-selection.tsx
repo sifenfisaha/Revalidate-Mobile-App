@@ -45,7 +45,10 @@ export default function RoleSelection() {
 
     const handleContinue = () => {
         if (selectedRole) {
-            router.push("/(onboarding)/professional-details");
+            router.push({
+                pathname: "/(onboarding)/professional-details",
+                params: { role: selectedRole },
+            });
         }
     };
 

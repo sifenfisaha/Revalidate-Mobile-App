@@ -9,14 +9,18 @@
     "lint": "eslint . --ext .ts",
     "type-check": "tsc --noEmit",
     "test": "jest",
+    "test:db": "tsx src/scripts/test-db.ts",
+    "find:mysql": "tsx src/scripts/find-mysql-host.ts",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
     "@prisma/client": "^5.7.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
     "express": "^4.18.2",
     "firebase-admin": "^12.0.0",
     "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.16.1",
     "redis": "^4.6.12",
     "stripe": "^14.7.0",
     "zod": "^3.22.4"

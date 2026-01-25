@@ -1,4 +1,4 @@
-import { getMySQLPool } from '../../config/database';
+import { prisma } from '../../lib/prisma';
 import { ApiError } from '../../common/middleware/error-handler';
 import { User, UpdateUserProfile, ROLE_REQUIREMENTS } from './user.model';
 import { mapUserRow, mapUserToDb } from '../../config/database-mapping';
@@ -7,34 +7,30 @@ import { mapUserRow, mapUserToDb } from '../../config/database-mapping';
  * Get user by ID
  */
 export async function getUserById(userId: string): Promise<User | null> {
-  const pool = getMySQLPool();
-  const [users] = await pool.execute(
-    'SELECT * FROM users WHERE id = ?',
-    [userId]
-  ) as any[];
+  const user = await prisma.users.findUnique({
+    where: { id: parseInt(userId) },
+  });
 
-  if (users.length === 0) {
+  if (!user) {
     return null;
   }
 
-  return users[0] as User;
+  return mapUserRow(user) as User;
 }
 
 /**
  * Get user by email
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
-  const pool = getMySQLPool();
-  const [users] = await pool.execute(
-    'SELECT * FROM users WHERE email = ?',
-    [email]
-  ) as any[];
+  const user = await prisma.users.findFirst({
+    where: { email },
+  });
 
-  if (users.length === 0) {
+  if (!user) {
     return null;
   }
 
-  return users[0] as User;
+  return mapUserRow(user) as User;
 }
 
 /**
@@ -44,96 +40,69 @@ export async function updateUserProfile(
   userId: string,
   updates: UpdateUserProfile
 ): Promise<User> {
-  const pool = getMySQLPool();
-
   // Map updates to database column names
   const dbUpdates = mapUserToDb(updates);
   
-  // Build dynamic update query
-  const fields: string[] = [];
-  const values: any[] = [];
+  // Build update object
+  const updateData: any = {};
 
   if (dbUpdates.registration !== undefined) {
-    fields.push('registration = ?');
-    values.push(dbUpdates.registration);
+    updateData.registration = dbUpdates.registration;
   }
   if (dbUpdates.due_date !== undefined) {
-    fields.push('due_date = ?');
-    values.push(dbUpdates.due_date);
+    updateData.due_date = dbUpdates.due_date;
   }
   if (dbUpdates.reg_type !== undefined) {
-    fields.push('reg_type = ?');
-    values.push(dbUpdates.reg_type);
+    updateData.reg_type = dbUpdates.reg_type;
   }
   if (dbUpdates.work_settings !== undefined) {
-    fields.push('work_settings = ?');
-    values.push(dbUpdates.work_settings || null);
+    updateData.work_settings = dbUpdates.work_settings || null;
   }
   if (dbUpdates.scope_practice !== undefined) {
-    fields.push('scope_practice = ?');
-    values.push(dbUpdates.scope_practice || null);
+    updateData.scope_practice = dbUpdates.scope_practice || null;
   }
   if (dbUpdates.subscription_tier !== undefined) {
-    fields.push('subscription_tier = ?');
-    values.push(dbUpdates.subscription_tier);
+    updateData.subscription_tier = dbUpdates.subscription_tier;
   }
   if (dbUpdates.subscription_status !== undefined) {
-    fields.push('subscription_status = ?');
-    values.push(dbUpdates.subscription_status);
+    updateData.subscription_status = dbUpdates.subscription_status;
   }
   if (dbUpdates.trial_ends_at !== undefined) {
-    fields.push('trial_ends_at = ?');
-    values.push(dbUpdates.trial_ends_at);
+    updateData.trial_ends_at = dbUpdates.trial_ends_at;
   }
 
-  if (fields.length === 0) {
+  if (Object.keys(updateData).length === 0) {
     throw new ApiError(400, 'No fields to update');
   }
 
-  fields.push('updated_at = NOW()');
-  values.push(userId);
+  updateData.updated_at = new Date();
 
-  await pool.execute(
-    `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
-    values
-  );
+  const updated = await prisma.users.update({
+    where: { id: parseInt(userId) },
+    data: updateData,
+  });
 
-  const updated = await getUserById(userId);
-  if (!updated) {
-    throw new ApiError(404, 'User not found after update');
-  }
-
-  return updated;
+  return mapUserRow(updated) as User;
 }
 
 /**
  * Delete user account
  */
 export async function deleteUser(userId: string): Promise<void> {
-  const pool = getMySQLPool();
-
-  // Start transaction to delete all user data
-  const connection = await pool.getConnection();
-  await connection.beginTransaction();
-
-  try {
+  // Use Prisma transaction to delete all user data
+  await prisma.$transaction(async (tx) => {
+    const userIdNum = parseInt(userId);
+    
     // Delete user's data from all tables
-    await connection.execute('DELETE FROM work_hours WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM cpd_hours WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM feedback_log WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM reflective_accounts WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM appraisal_records WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM calendar_events WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM documents WHERE user_id = ?', [userId]);
-    await connection.execute('DELETE FROM users WHERE id = ?', [userId]);
-
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+    await tx.work_hours.deleteMany({ where: { user_id: userIdNum } });
+    await tx.cpd_hours.deleteMany({ where: { user_id: userIdNum } });
+    await tx.feedback_log.deleteMany({ where: { user_id: userIdNum } });
+    await tx.reflective_accounts.deleteMany({ where: { user_id: userIdNum } });
+    await tx.appraisal_records.deleteMany({ where: { user_id: userIdNum } });
+    await tx.calendar_events.deleteMany({ where: { user_id: userIdNum } });
+    await tx.documents.deleteMany({ where: { user_id: userIdNum } });
+    await tx.users.delete({ where: { id: userIdNum } });
+  });
 }
 
 /**
@@ -141,4 +110,38 @@ export async function deleteUser(userId: string): Promise<void> {
  */
 export function getRoleRequirements(role: string) {
   return ROLE_REQUIREMENTS[role as keyof typeof ROLE_REQUIREMENTS] || ROLE_REQUIREMENTS.other;
+}
+
+/**
+ * Register a new user (creates unverified user)
+ */
+export async function registerUser(email: string, passwordHash: string): Promise<{ id: number; email: string }> {
+  // Check if user already exists
+  const existingUser = await prisma.users.findFirst({
+    where: { email },
+    select: { id: true },
+  });
+
+  if (existingUser) {
+    throw new ApiError(409, 'User already exists. Please login instead.');
+  }
+
+  // Create user (unverified, status = '0' means inactive/unverified)
+  const user = await prisma.users.create({
+    data: {
+      email,
+      password: passwordHash,
+      name: email.split('@')[0], // Use email prefix as name
+      reg_type: 'email',
+      subscription_tier: 'free',
+      subscription_status: 'active',
+      status: '0', // Unverified
+      user_type: 'Customer',
+    },
+  });
+
+  return {
+    id: user.id,
+    email: user.email,
+  };
 }

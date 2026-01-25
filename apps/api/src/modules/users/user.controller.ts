@@ -6,9 +6,13 @@ import {
   updateUserProfile,
   deleteUser,
   getRoleRequirements,
+  registerUser,
 } from './user.service';
 import { UpdateUserProfile } from './user.model';
 import { z } from 'zod';
+import bcrypt from 'bcrypt';
+import { generateOTP, storeOTP } from '../auth/otp.service';
+import { sendOTPEmail } from '../auth/email.service';
 
 const updateProfileSchema = z.object({
   registration_number: z.string().optional(),
@@ -100,5 +104,58 @@ export const deleteAccount = asyncHandler(async (req: Request, res: Response) =>
   res.json({
     success: true,
     message: 'Account deleted successfully',
+  });
+});
+
+/**
+ * Registration schema - email and password only
+ */
+const registerSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+/**
+ * Register a new user
+ * POST /api/v1/users/register
+ * 
+ * Creates a user account with email and password, then sends OTP to email for verification
+ */
+export const register = asyncHandler(async (req: Request, res: Response) => {
+  const validated = registerSchema.parse(req.body);
+
+  // Hash password
+  const saltRounds = 10;
+  const passwordHash = await bcrypt.hash(validated.password, saltRounds);
+
+  // Create user (unverified)
+  const user = await registerUser(validated.email, passwordHash);
+
+  // Generate and store OTP
+  const otp = generateOTP();
+  await storeOTP(validated.email, otp);
+
+  // Send OTP email
+  try {
+    await sendOTPEmail(validated.email, otp);
+  } catch (error) {
+    // If email fails, we still created the user, but log the error
+    console.error('Failed to send OTP email:', error);
+    // In development, we might want to still return success
+    if (process.env.NODE_ENV !== 'development') {
+      throw new ApiError(500, 'Failed to send verification email. Please try again.');
+    }
+  }
+
+  res.status(201).json({
+    success: true,
+    message: 'Registration successful. Please check your email for the verification code.',
+    data: {
+      userId: user.id,
+      email: user.email,
+      ...(process.env.NODE_ENV === 'development' && { 
+        otp: otp // Only in development
+      }),
+    },
   });
 });

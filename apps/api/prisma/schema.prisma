@@ -1,0 +1,1114 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+
+model addressbooks {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  house_number String
+  street_road String?
+  county String?
+  town String?
+  postcode String
+  type String
+  address1 String?
+  recyclebin_status String @default(0)
+  recyclebin_datetime DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("addressbooks")
+}
+
+model appraisal_records {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  appraisal_date DateTime @db.Date
+  notes String?
+  document_ids String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("appraisal_records")
+}
+
+model attendances {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  name String
+  date DateTime
+  work_settings Int
+  scope_practice Int
+  registration Int
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("attendances")
+}
+
+model banners {
+  id BigInt @id @default(autoincrement())
+  name String
+  image String
+  short_order Int @default(0)
+  type String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("banners")
+}
+
+model brands {
+  id BigInt @id @default(autoincrement())
+  name String
+  image String
+  short_order Int @default(0)
+  description String?
+  home String @default(0)
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("brands")
+}
+
+model calender_bookings {
+  id BigInt @id @default(autoincrement())
+  name String
+  location String
+  description String
+  start_date DateTime
+  end_date DateTime
+  start_time DateTime
+  end_time DateTime
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("calender_bookings")
+}
+
+model categories {
+  id BigInt @id @default(autoincrement())
+  name String
+  price Decimal @default(0.00)
+  slug String?
+  parent_id BigInt?
+  short_order Int?
+  image String?
+  description String?
+  top_category Int @default(0)
+  must_try_status String @default(0)
+  status String @default(0)
+  banner_image String?
+  recyclebin_status String @default(0)
+  recyclebin_datetime DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("categories")
+}
+
+model company_setups {
+  id BigInt @id @default(autoincrement())
+  company_name String
+  gstn String
+  company_address String?
+  number String?
+  alternate_number String?
+  email String?
+  support_email String?
+  contact_person_name String?
+  customer_care_number String?
+  bank_name String?
+  account_number String?
+  ifsc_code String?
+  bank_address String?
+  image String?
+  mail_mailer String?
+  mail_host String?
+  mail_port String?
+  mail_username String?
+  mail_password String?
+  mail_encryption String?
+  mail_from_address String?
+  mail_from_name String?
+  stripe_key String?
+  stripe_secret String?
+  paypal_key String?
+  paypal_secret String?
+  google_client_id String?
+  google_client_secret String?
+  facebook_client_id String?
+  facebook_client_secret String?
+  address_api_key String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("company_setups")
+}
+
+model contact_us {
+  id BigInt @id @default(autoincrement())
+  name String
+  mobile String
+  subject String
+  message String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("contact_us")
+}
+
+model countries {
+  id Int @id @default(autoincrement())
+  name String
+  iso3 String?
+  numeric_code String?
+  iso2 String?
+  phonecode String?
+  capital String?
+  currency String?
+  currency_symbol String?
+  tld String?
+  native String?
+  region String?
+  subregion String?
+  timezones String?
+  translations String?
+  latitude Decimal?
+  longitude Decimal?
+  emoji String?
+  emojiU String?
+  created_at DateTime?
+  updated_at DateTime @default(now())
+  flag Int @default(1)
+  wikiDataId String?
+
+  @@map("countries")
+}
+
+model cpd_hours {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  date DateTime
+  method String?
+  topic String?
+  link_code String?
+  standards_proficiency String?
+  number_hours String?
+  participatory_hours String?
+  document String?
+  learning_type String?
+  standard String?
+  learning String?
+  status String @default(0)
+  reset String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  duration_minutes Int?
+
+  @@map("cpd_hours")
+}
+
+model criterias {
+  id BigInt @id @default(autoincrement())
+  name String
+  questions String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("criterias")
+}
+
+model currency_values {
+  id BigInt @id @default(autoincrement())
+  name String
+  image String
+  first_icon String
+  second_icon String?
+  value String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("currency_values")
+}
+
+model designations {
+  id BigInt @id @default(autoincrement())
+  designations String
+  status String @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("designations")
+}
+
+model discussions {
+  id Int @id @default(autoincrement())
+  user_id BigInt?
+  where String
+  date DateTime
+  discussion String
+  notes String?
+  document String?
+  status String @default(1)
+  reset String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("discussions")
+}
+
+model earnings {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt?
+  financial_year_id BigInt?
+  working_hour_id BigInt?
+  earnings Decimal @default(0)
+  date_recorded DateTime @default(now())
+  description String?
+  created_at DateTime? @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("earnings")
+}
+
+model failed_jobs {
+  id BigInt @id @default(autoincrement())
+  uuid String
+  connection String
+  queue String
+  payload String
+  exception String
+  failed_at DateTime @default(now())
+
+  @@map("failed_jobs")
+}
+
+model feedback_log {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  feedback_date DateTime
+  feedback_type String
+  feedback_text String?
+  document_ids String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("feedback_log")
+}
+
+model file_managers {
+  id BigInt @id @default(autoincrement())
+  name String
+  image String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("file_managers")
+}
+
+model financial_years {
+  id BigInt @id @default(autoincrement())
+  name String?
+  start_date DateTime? @default(now())
+  end_date DateTime @default(now())
+  is_current Int @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("financial_years")
+}
+
+model helps {
+  id Int @id @default(autoincrement())
+  name String?
+  email String?
+  phone String?
+  questions String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("helps")
+}
+
+model hospitals {
+  id BigInt @id @default(autoincrement())
+  name String
+  unique_id String
+  about1 String
+  about2 String
+  about3 String
+  about4 String
+  about5 String
+  address1 String
+  address2 String
+  postcode String
+  county String
+  town String
+  mobile String?
+  email String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("hospitals")
+}
+
+model informations {
+  id BigInt @id @default(autoincrement())
+  title String
+  description String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("informations")
+}
+
+model learning_methods {
+  id BigInt @id @default(autoincrement())
+  name String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("learning_methods")
+}
+
+model link_codes {
+  id BigInt @id @default(autoincrement())
+  name String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("link_codes")
+}
+
+model logs {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  action String?
+  created_at DateTime @default(now())
+
+  @@map("logs")
+}
+
+model mail_automations {
+  id BigInt @id @default(autoincrement())
+  name String?
+  list_id Int
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("mail_automations")
+}
+
+model mail_campaigns {
+  id BigInt @id @default(autoincrement())
+  name String
+  from_email_id Int
+  reply_email_id Int
+  list_id Int
+  date DateTime?
+  time DateTime?
+  subject String?
+  description String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("mail_campaigns")
+}
+
+model mail_categories {
+  id BigInt @id @default(autoincrement())
+  name String
+  user_ids String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("mail_categories")
+}
+
+model mail_list_users {
+  id BigInt @id @default(autoincrement())
+  list_id Int
+  user_id Int
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("mail_list_users")
+}
+
+model mail_settings {
+  id BigInt @id @default(autoincrement())
+  mail_mailer String
+  mail_host String
+  mail_port String
+  mail_username String
+  mail_password String
+  mail_encryption String
+  mail_from_address String
+  mail_from_name String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("mail_settings")
+}
+
+model mail_templates {
+  id BigInt @id @default(autoincrement())
+  list_id Int?
+  name String
+  subject String?
+  description String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("mail_templates")
+}
+
+model menus {
+  id BigInt @id @default(autoincrement())
+  label String
+  link String
+  active_link String
+  icon String
+  parent Int
+  sort Int
+  status String @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("menus")
+}
+
+model migrations {
+  id Int @id @default(autoincrement())
+  migration String
+  batch Int
+
+  @@map("migrations")
+}
+
+model model_has_permissions {
+  permission_id BigInt
+  model_type String
+  model_id Int
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("model_has_permissions")
+}
+
+model model_has_roles {
+  role_id BigInt @id
+  model_type String
+  model_id Int
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("model_has_roles")
+}
+
+model newsletters {
+  id BigInt @id @default(autoincrement())
+  email String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("newsletters")
+}
+
+model notifications {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt?
+  title String
+  message String
+  type String?
+  status String @default(0)
+  recyclebin_status String @default(0)
+  recyclebin_datetime DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model oauth_access_tokens {
+  id String @id
+  user_id BigInt?
+  client_id BigInt
+  name String?
+  scopes String?
+  revoked Int
+  created_at DateTime?
+  updated_at DateTime?
+  expires_at DateTime?
+
+  @@map("oauth_access_tokens")
+}
+
+model oauth_auth_codes {
+  id String @id
+  user_id BigInt
+  client_id BigInt
+  scopes String?
+  revoked Int
+  expires_at DateTime?
+
+  @@map("oauth_auth_codes")
+}
+
+model oauth_clients {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt?
+  name String
+  secret String?
+  provider String?
+  redirect String
+  personal_access_client Int
+  password_client Int
+  revoked Int
+  created_at DateTime?
+  updated_at DateTime?
+
+  @@map("oauth_clients")
+}
+
+model oauth_personal_access_clients {
+  id BigInt @id @default(autoincrement())
+  client_id BigInt
+  created_at DateTime?
+  updated_at DateTime?
+
+  @@map("oauth_personal_access_clients")
+}
+
+model oauth_refresh_tokens {
+  id String @id
+  access_token_id String
+  revoked Int
+  expires_at DateTime?
+
+  @@map("oauth_refresh_tokens")
+}
+
+model order_setups {
+  id BigInt @id @default(autoincrement())
+  primary_color String?
+  secondary_color String?
+  button_color String?
+  text_color String?
+  text_border String?
+  splash_image String?
+  home_image String?
+  other_image String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("order_setups")
+}
+
+model other_healthcare_reg {
+  id Int @id @default(autoincrement())
+  name String
+  status String @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("other_healthcare_reg")
+}
+
+model particulars {
+  id BigInt @id @default(autoincrement())
+  name String
+  description String
+  status String @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("particulars")
+}
+
+model password_resets {
+  email String
+  token String
+  created_at DateTime?
+
+  @@map("password_resets")
+}
+
+model payment_consoles {
+  id BigInt @id @default(autoincrement())
+  value String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("payment_consoles")
+}
+
+model permissions {
+  id BigInt @id @default(autoincrement())
+  name String
+  url String
+  icon String
+  parent_id Int
+  guard_name String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("permissions")
+}
+
+model personal_documents {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  document String?
+  document_name String
+  type String @default("personal")
+  date DateTime?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("personal_documents")
+}
+
+model portfolios {
+  id BigInt @id @default(autoincrement())
+  services_id Int
+  name String
+  image String
+  status String @default(0)
+  home String @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("portfolios")
+}
+
+model portfolio_images {
+  id BigInt @id @default(autoincrement())
+  name String?
+  portfolio_id Int
+  image String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("portfolio_images")
+}
+
+model reflective_accounts {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  reflection_date DateTime
+  reflection_text String?
+  document_ids String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("reflective_accounts")
+}
+
+model reflective_account_forms {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  date DateTime
+  code String
+  cpd_activity String
+  learn_activity String?
+  improve_practice String
+  relevant_code String
+  document String?
+  status String @default(0)
+  reset String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("reflective_account_forms")
+}
+
+model reflective_codes {
+  id BigInt @id @default(autoincrement())
+  name String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("reflective_codes")
+}
+
+model roles {
+  id BigInt @id @default(autoincrement())
+  name String
+  guard_name String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("roles")
+}
+
+model role_has_permissions {
+  id BigInt @id @default(autoincrement())
+  permission_id BigInt
+  role_id BigInt
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("role_has_permissions")
+}
+
+model role_masters {
+  id BigInt @id @default(autoincrement())
+  name String
+  criterias String
+  type String
+  unity String
+  value Int
+  reflective_time Int @default(0)
+  feedback_time Int @default(0)
+  discussion_time Int @default(0)
+  CPDWork_time Int @default(0)
+  status String @default(0)
+  sort_status Int @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("role_masters")
+}
+
+model seeders {
+  id BigInt @id @default(autoincrement())
+  seeder String
+  seeded_at DateTime @default(now())
+
+  @@map("seeders")
+}
+
+model seos {
+  id Int @id @default(autoincrement())
+  type String
+  meta_title String
+  meta_keywords String
+  meta_description String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("seos")
+}
+
+model sequences {
+  id BigInt @id @default(autoincrement())
+  automation_id Int
+  name String
+  type String?
+  list_id Int
+  subject String
+  description String?
+  send_email_id String
+  before String
+  days DateTime?
+  time DateTime
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("sequences")
+}
+
+model settings {
+  id BigInt @id @default(autoincrement())
+  type String
+  value Decimal
+  currency String
+  sign String?
+  label String?
+  description String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("settings")
+}
+
+model sliders {
+  id BigInt @id @default(autoincrement())
+  image String
+  cate_id Int?
+  sort_order Int @default(0)
+  status String @default(0)
+  recyclebin_status String @default(0)
+  recyclebin_datetime DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  link String?
+  name String?
+  bg_color String?
+
+  @@map("sliders")
+}
+
+model sliderss {
+  id BigInt @id @default(autoincrement())
+  image String
+  cate_id Int?
+  sort_order Int @default(0)
+  status String @default(0)
+  recyclebin_status String @default(0)
+  recyclebin_datetime DateTime?
+  link String?
+  name String?
+  bg_color String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("sliderss")
+}
+
+model sources_feedback {
+  id BigInt @id @default(autoincrement())
+  name String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("sources_feedback")
+}
+
+model testimonials {
+  id BigInt @id @default(autoincrement())
+  name String
+  designation String
+  image String
+  description String
+  status String @default(0)
+  recyclebin_status String @default(0)
+  recyclebin_datetime DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("testimonials")
+}
+
+model timers {
+  id Int @id @default(autoincrement())
+  time Int? @default(0)
+  user_id BigInt? @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("timers")
+}
+
+model types_feedback {
+  id BigInt @id @default(autoincrement())
+  name String
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("types_feedback")
+}
+
+model users {
+  id BigInt @id @default(autoincrement())
+  unique_id String?
+  salutation String?
+  first_name String?
+  surname String?
+  name String
+  email String?
+  phone_code String?
+  mobile String?
+  reg_type String
+  status String @default(0)
+  user_type String @default("Customer")
+  otp Int @default(0)
+  password String?
+  gender String?
+  designation_id Int @default(0)
+  work_settings Int?
+  scope_practice Int?
+  registration String?
+  organization_name String?
+  mode String?
+  due_date String?
+  hourly_rate Decimal @default(0.00)
+  hours_completed_already Int @default(0)
+  training_hours_completed_already Int @default(0)
+  earned Decimal @default(0.00)
+  earning_home String?
+  image String?
+  block_user String @default(1)
+  update_status String @default(0)
+  device_token String?
+  description String?
+  notepad String?
+  remember_token String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  deleted_at DateTime?
+  last_login DateTime?
+  premium_status String? @default("free")
+  offline_data String?
+  firebase_uid String?
+  subscription_tier String? @default("free")
+  subscription_status String? @default("active")
+  trial_ends_at DateTime?
+
+  @@map("users")
+}
+
+model user_calendars {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  type String
+  title String
+  date DateTime
+  end_date DateTime?
+  start_time String?
+  end_time String?
+  venue String?
+  invite String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("user_calendars")
+}
+
+model user_calendars_old {
+  id BigInt @id @default(autoincrement())
+  user_id Int
+  type String
+  title String
+  date DateTime
+  start_time DateTime
+  end_time DateTime
+  venue String
+  invite String?
+  status String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("user_calendars_old")
+}
+
+model user_documents {
+  id BigInt @id @default(autoincrement())
+  created_at DateTime?
+  updated_at DateTime?
+
+  @@map("user_documents")
+}
+
+model user_feedback_logs {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  name String
+  date DateTime
+  sources_feedback Int?
+  types_feedback Int?
+  content_feedback String?
+  document String
+  status String @default(0)
+  reset String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("user_feedback_logs")
+}
+
+model user_roles {
+  id BigInt @id @default(autoincrement())
+  designation_id BigInt
+  menu_id BigInt
+  status String @default(1)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("user_roles")
+}
+
+model working_hours {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  hospital BigInt
+  date DateTime
+  mode String?
+  number_hours String
+  work_settings String
+  scope_practice String
+  registration String
+  hourly_rate Decimal @default(0.00)
+  description String?
+  document String?
+  status String @default(0)
+  reset String @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("working_hours")
+}
+
+model work_hours {
+  id BigInt @id @default(autoincrement())
+  user_id BigInt
+  start_time DateTime
+  end_time DateTime?
+  duration_minutes Int?
+  work_description String?
+  document_ids String?
+  is_active Boolean? @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  @@map("work_hours")
+}
+
+model email_otps {
+  id        BigInt    @id @default(autoincrement())
+  email     String    @db.VarChar(255)
+  otp       String    @db.VarChar(6)
+  expires_at DateTime
+  used      Boolean   @default(false)
+  created_at DateTime  @default(now())
+
+  @@index([email])
+  @@index([expires_at])
+  @@map("email_otps")
+}
+
+model email_otps {
+  id        BigInt    @id @default(autoincrement())
+  email     String    @db.VarChar(255)
+  otp       String    @db.VarChar(6)
+  expires_at DateTime
+  used      Boolean   @default(false)
+  created_at DateTime  @default(now())
+
+  @@index([email])
+  @@index([expires_at])
+  @@map("email_otps")
+}

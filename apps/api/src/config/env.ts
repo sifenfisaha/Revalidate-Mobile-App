@@ -24,6 +24,11 @@ export const MYSQL_CONFIG = {
   host: process.env.MYSQL_HOST || 'localhost',
 };
 
+// Prisma DATABASE_URL
+// Format: mysql://USER:PASSWORD@HOST:PORT/DATABASE
+export const DATABASE_URL = process.env.DATABASE_URL || 
+  `mysql://${MYSQL_CONFIG.user}:${MYSQL_CONFIG.password}@${MYSQL_CONFIG.host}:${MYSQL_CONFIG.port}/${MYSQL_CONFIG.database}${process.env.MYSQL_SSL === 'true' ? '?sslaccept=strict' : ''}`;
+
 // Validate MySQL configuration
 if (!MYSQL_CONFIG.user || !MYSQL_CONFIG.password || !MYSQL_CONFIG.database) {
   console.warn('⚠️  MySQL configuration is incomplete. Some environment variables may be missing.');

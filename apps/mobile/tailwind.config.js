@@ -45,6 +45,27 @@ module.exports = {
           light: "#f8fafc",
           dark: "#111827",
         },
+
+        /* ===== Premium / Gold ===== */
+        premium: {
+          DEFAULT: "#D4AF37",
+          50: "#F9F6F0",
+          100: "#F4EED9",
+          200: "#E8D9B3",
+          300: "#DCC48D",
+          400: "#D4AF37",
+          500: "#B8941F",
+          600: "#9A7A1A",
+          700: "#7C6015",
+          800: "#5E4610",
+          900: "#402C0B",
+        },
+        gold: {
+          DEFAULT: "#FFD700",
+          light: "#FFE44D",
+          dark: "#B8860B",
+          shimmer: "#FFF8DC",
+        },
       },
     },
   },

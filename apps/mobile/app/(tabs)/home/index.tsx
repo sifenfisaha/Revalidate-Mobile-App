@@ -8,6 +8,7 @@ import { useThemeStore } from '@/features/theme/theme.store';
 import { apiService, API_ENDPOINTS } from '@/services/api';
 import { showToast } from '@/utils/toast';
 import { setSubscriptionInfo } from '@/utils/subscription';
+import { usePremium } from '@/hooks/usePremium';
 import '../../global.css';
 
 interface UserData {
@@ -30,6 +31,7 @@ interface ActiveSession {
 export default function DashboardScreen() {
   const router = useRouter();
   const { isDark } = useThemeStore();
+  const { isPremium } = usePremium();
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [timer, setTimer] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [userData, setUserData] = useState<UserData | null>(null);
@@ -472,20 +474,86 @@ export default function DashboardScreen() {
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
       >
-        <View className="px-6 pt-6 pb-20 rounded-b-[40px]" style={{ backgroundColor: '#2B5F9E' }}>
+        <View 
+          className="px-6 pt-6 pb-20 rounded-b-[40px]" 
+          style={{ 
+            backgroundColor: isPremium ? '#D4AF37' : '#2B5F9E',
+            ...(isPremium && {
+              shadowColor: '#D4AF37',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+              elevation: 8,
+            }),
+          }}
+        >
           <View className="flex-row justify-between items-center mb-4">
             <View className="flex-row items-center gap-3">
               <View className="relative">
-                <View className="w-12 h-12 rounded-full bg-white/30 border-2 border-white/30 items-center justify-center">
+                <View 
+                  className={`w-12 h-12 rounded-full border-2 items-center justify-center ${
+                    isPremium 
+                      ? 'bg-white/40 border-[#FFD700]' 
+                      : 'bg-white/30 border-white/30'
+                  }`}
+                  style={isPremium ? {
+                    shadowColor: '#FFD700',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.5,
+                    shadowRadius: 4,
+                    elevation: 4,
+                  } : {}}
+                >
                   <MaterialIcons name="person" size={24} color="#FFFFFF" />
                 </View>
-                <View className="absolute -bottom-1 -right-1 bg-green-500 w-4 h-4 rounded-full border-2 border-[#2B5F9E]" />
+                {isPremium ? (
+                  <View 
+                    className="absolute -bottom-1 -right-1 bg-[#FFD700] w-5 h-5 rounded-full border-2 border-[#D4AF37] items-center justify-center"
+                    style={{
+                      shadowColor: '#FFD700',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.6,
+                      shadowRadius: 3,
+                      elevation: 3,
+                    }}
+                  >
+                    <MaterialIcons name="workspace-premium" size={10} color="#1F2937" />
+                  </View>
+                ) : (
+                  <View className="absolute -bottom-1 -right-1 bg-green-500 w-4 h-4 rounded-full border-2 border-[#2B5F9E]" />
+                )}
               </View>
               <View>
-                <Text className="text-white/80 text-xs font-medium uppercase tracking-wider">
-                  {getGreeting()}
-                </Text>
-                <Text className="text-white text-xl font-bold" numberOfLines={1}>
+                <View className="flex-row items-center gap-2">
+                  <Text className="text-white/90 text-xs font-medium uppercase tracking-wider">
+                    {getGreeting()}
+                  </Text>
+                  {isPremium && (
+                    <View 
+                      className="px-2 py-0.5 rounded-full bg-[#FFD700]/20 border border-[#FFD700]/50"
+                      style={{
+                        shadowColor: '#FFD700',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 2,
+                        elevation: 2,
+                      }}
+                    >
+                      <Text className="text-[#FFD700] text-[9px] font-bold uppercase tracking-tight">
+                        Premium
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text 
+                  className="text-white text-xl font-bold" 
+                  numberOfLines={1}
+                  style={isPremium ? {
+                    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 2,
+                  } : {}}
+                >
                   {isLoading ? 'Loading...' : formatUserName()}
                 </Text>
               </View>
@@ -506,11 +574,35 @@ export default function DashboardScreen() {
 
           {revalidationDays !== null && (
             <View className="flex-row justify-between items-center">
-              <View className="bg-white/10 px-3 py-2 rounded-2xl items-center border border-white/20">
-                <Text className="text-[10px] text-white/80 font-semibold uppercase">
+              <View 
+                className={`px-3 py-2 rounded-2xl items-center border ${
+                  isPremium 
+                    ? 'bg-white/20 border-[#FFD700]/40' 
+                    : 'bg-white/10 border-white/20'
+                }`}
+                style={isPremium ? {
+                  shadowColor: '#FFD700',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  elevation: 4,
+                } : {}}
+              >
+                <Text className={`text-[10px] font-semibold uppercase ${
+                  isPremium ? 'text-white/90' : 'text-white/80'
+                }`}>
                   Revalidation
                 </Text>
-                <Text className="text-white font-bold">
+                <Text 
+                  className={`font-bold ${
+                    isPremium ? 'text-white' : 'text-white'
+                  }`}
+                  style={isPremium ? {
+                    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 2,
+                  } : {}}
+                >
                   {revalidationDays > 0 
                     ? `${revalidationDays} ${revalidationDays === 1 ? 'Day' : 'Days'}`
                     : revalidationDays === 0

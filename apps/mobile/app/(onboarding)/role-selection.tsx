@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -28,11 +28,13 @@ export default function RoleSelection() {
     const router = useRouter();
     const { isDark } = useThemeStore();
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(true);
 
     const {
         handleSubmit,
         setValue,
         watch,
+        reset,
         formState: { errors },
     } = useForm<OnboardingRoleInput>({
         resolver: zodResolver(onboardingRoleSchema) as Resolver<OnboardingRoleInput>,
@@ -40,6 +42,44 @@ export default function RoleSelection() {
     });
 
     const watchedRole = watch("role");
+
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    setIsLoadingData(false);
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step1: { role: string | null };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step1?.role) {
+                    // Map backend role to frontend role
+                    const backendRole = response.data.step1.role;
+                    let frontendRole = backendRole;
+                    // Map 'other_healthcare' back to 'other' or 'dentist' if needed
+                    if (backendRole === 'other_healthcare') {
+                        frontendRole = 'other';
+                    }
+                    reset({ role: frontendRole as any });
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved role data found');
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
 
     // Map frontend role values to backend API values
     const mapRoleToBackend = (role: string): 'doctor' | 'nurse' | 'pharmacist' | 'other_healthcare' => {

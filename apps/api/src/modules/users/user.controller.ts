@@ -12,6 +12,7 @@ import {
   updateOnboardingStep3,
   updateOnboardingStep4,
   getRegistrationProgress,
+  getOnboardingData,
 } from './user.service';
 import { 
   UpdateUserProfile,
@@ -313,5 +314,22 @@ export const getOnboardingProgress = asyncHandler(async (req: Request, res: Resp
   res.json({
     success: true,
     data: progress,
+  });
+});
+
+/**
+ * Get all saved onboarding data
+ * GET /api/v1/users/onboarding/data
+ */
+export const getOnboardingDataEndpoint = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
+  const data = await getOnboardingData(req.user.userId);
+
+  res.json({
+    success: true,
+    data,
   });
 });

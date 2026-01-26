@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, Modal, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -122,6 +122,7 @@ export default function ProfessionalDetails() {
 
     const { isDark } = useThemeStore();
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(true);
     const [showWorkSettingModal, setShowWorkSettingModal] = useState(false);
     const [showScopeModal, setShowScopeModal] = useState(false);
     const [showProfessionalRegistrationsModal, setShowProfessionalRegistrationsModal] = useState(false);
@@ -136,6 +137,7 @@ export default function ProfessionalDetails() {
         handleSubmit,
         setValue,
         watch,
+        reset,
         formState: { errors },
     } = useForm<OnboardingProfessionalDetailsInput>({
         resolver: zodResolver(onboardingProfessionalDetailsSchema) as Resolver<OnboardingProfessionalDetailsInput>,
@@ -151,6 +153,74 @@ export default function ProfessionalDetails() {
             notepad: "",
         },
     });
+
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    setIsLoadingData(false);
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step3: {
+                            registrationNumber: string;
+                            revalidationDate: string | null;
+                            workSetting?: string;
+                            scope?: string;
+                            professionalRegistrations: string[];
+                            registrationPin: string;
+                            hourlyRate: number;
+                            workHoursCompleted: number;
+                            trainingHoursCompleted: number;
+                            earningsCurrentYear: number;
+                            workDescription: string;
+                            notepad: string;
+                        };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step3) {
+                    const step3 = response.data.step3;
+                    const revalidationDate = step3.revalidationDate 
+                        ? new Date(step3.revalidationDate) 
+                        : undefined;
+
+                    reset({
+                        registrationNumber: step3.registrationNumber || "",
+                        professionalRegistrations: (step3.professionalRegistrations || []) as any,
+                        registrationPin: step3.registrationPin || "",
+                        hourlyRate: step3.hourlyRate || 0,
+                        workHoursCompleted: step3.workHoursCompleted || 0,
+                        trainingHoursCompleted: step3.trainingHoursCompleted || 0,
+                        earningsCurrentYear: step3.earningsCurrentYear || 0,
+                        workDescription: step3.workDescription || "",
+                        notepad: step3.notepad || "",
+                        revalidationDate: revalidationDate,
+                        workSetting: step3.workSetting as any,
+                        scope: step3.scope as any,
+                    });
+
+                    // Set date picker to saved date if available
+                    if (revalidationDate) {
+                        setSelectedMonth(revalidationDate.getMonth());
+                        setSelectedYear(revalidationDate.getFullYear());
+                    }
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved professional details found');
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
 
     const watchedDate = watch("revalidationDate");
     const watchedWorkSetting = watch("workSetting");

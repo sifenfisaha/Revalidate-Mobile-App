@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -21,12 +21,14 @@ export default function PersonalDetails() {
     const params = useLocalSearchParams();
     const role = params.role as string;
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(true);
 
     const { isDark } = useThemeStore();
 
     const {
         control,
         handleSubmit,
+        reset,
         formState: { errors },
     } = useForm<OnboardingPersonalDetailsInput>({
         resolver: zodResolver(onboardingPersonalDetailsSchema) as Resolver<OnboardingPersonalDetailsInput>,
@@ -36,6 +38,41 @@ export default function PersonalDetails() {
             phone: "",
         },
     });
+
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    setIsLoadingData(false);
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step2: { name: string; email: string; phone: string };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step2) {
+                    reset({
+                        name: response.data.step2.name || "",
+                        email: response.data.step2.email || "",
+                        phone: response.data.step2.phone || "",
+                    });
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved personal details found');
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
 
     const onSubmit: SubmitHandler<OnboardingPersonalDetailsInput> = async (data) => {
         try {

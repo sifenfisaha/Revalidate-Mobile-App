@@ -391,3 +391,84 @@ export async function getRegistrationProgress(userId: string): Promise<Registrat
     currentStep,
   };
 }
+
+/**
+ * Get all saved onboarding data for a user
+ */
+export async function getOnboardingData(userId: string) {
+  const user = await prisma.users.findUnique({
+    where: { id: parseInt(userId) },
+    select: {
+      description: true,
+      name: true,
+      email: true,
+      mobile: true,
+      registration: true,
+      due_date: true,
+      work_settings: true,
+      scope_practice: true,
+      hourly_rate: true,
+      hours_completed_already: true,
+      training_hours_completed_already: true,
+      earned: true,
+      notepad: true,
+      subscription_tier: true,
+    },
+  });
+
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  // Parse description JSON to get step 1 and step 3 additional data
+  let descriptionData: any = {};
+  if (user.description) {
+    try {
+      descriptionData = typeof user.description === 'string' 
+        ? JSON.parse(user.description) 
+        : user.description;
+    } catch (e) {
+      // If not JSON, use empty object
+      descriptionData = {};
+    }
+  }
+
+  // Map work_settings and scope_practice from Int to string
+  const workSetting = user.work_settings !== null ? String(user.work_settings) : undefined;
+  const scopeOfPractice = user.scope_practice !== null ? String(user.scope_practice) : undefined;
+
+  // Parse professional registrations (stored as comma-separated string in description)
+  const professionalRegistrations = descriptionData.professionalRegistrations 
+    ? (typeof descriptionData.professionalRegistrations === 'string' 
+        ? descriptionData.professionalRegistrations.split(',').filter(Boolean)
+        : descriptionData.professionalRegistrations)
+    : [];
+
+  return {
+    step1: {
+      role: descriptionData.professionalRole || null,
+    },
+    step2: {
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.mobile || '',
+    },
+    step3: {
+      registrationNumber: user.registration || '',
+      revalidationDate: user.due_date ? new Date(user.due_date).toISOString().split('T')[0] : null,
+      workSetting: workSetting,
+      scope: scopeOfPractice,
+      professionalRegistrations: professionalRegistrations,
+      registrationPin: descriptionData.registrationReferencePin || '',
+      hourlyRate: user.hourly_rate || 0,
+      workHoursCompleted: user.hours_completed_already || 0,
+      trainingHoursCompleted: user.training_hours_completed_already || 0,
+      earningsCurrentYear: user.earned || 0,
+      workDescription: descriptionData.briefDescriptionOfWork || '',
+      notepad: user.notepad || '',
+    },
+    step4: {
+      subscriptionTier: user.subscription_tier || null,
+    },
+  };
+}

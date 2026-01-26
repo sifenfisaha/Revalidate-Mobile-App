@@ -72,6 +72,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         enableForExpoGo: true,
       },
     ],
+    [
+      '@stripe/stripe-react-native',
+      {
+        merchantIdentifier: 'merchant.com.revalidationtracker.app',
+        enableGooglePay: true,
+      },
+    ],
   ],
   extra: {
     eas: {

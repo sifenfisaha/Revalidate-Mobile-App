@@ -9,6 +9,7 @@ import {
   onboardingStep3,
   onboardingStep4,
   getOnboardingProgress,
+  getOnboardingDataEndpoint,
 } from '../modules/users/user.controller';
 import { authenticateToken } from '../modules/auth/auth.middleware';
 import { registrationRateLimiter } from '../common/middleware/rate-limiter';
@@ -26,6 +27,7 @@ router.delete('/profile', deleteAccount);
 
 // Onboarding routes (multi-step registration)
 router.get('/onboarding/progress', getOnboardingProgress);
+router.get('/onboarding/data', getOnboardingDataEndpoint);
 router.post('/onboarding/step-1', onboardingStep1);
 router.post('/onboarding/step-2', onboardingStep2);
 router.post('/onboarding/step-3', onboardingStep3);

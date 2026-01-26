@@ -14,8 +14,49 @@ import {
 import { useThemeStore } from "@/features/theme/theme.store";
 import { apiService, API_ENDPOINTS } from "@/services/api";
 import { showToast } from "@/utils/toast";
-import { useStripe } from "@stripe/stripe-react-native";
 import "../global.css";
+
+// Safe Stripe import - handles cases where native modules aren't available
+let useStripe: any;
+let isStripeAvailable = false;
+
+// Global flag to prevent repeated warnings (persists across hot reloads)
+declare global {
+    var __STRIPE_WARNING_LOGGED__: boolean | undefined;
+}
+
+// Try to load Stripe - will fail gracefully if native modules aren't available
+try {
+    // Try to import Stripe - this will fail if native modules aren't available
+    const stripeModule = require("@stripe/stripe-react-native");
+    if (stripeModule && stripeModule.useStripe) {
+        useStripe = stripeModule.useStripe;
+        isStripeAvailable = true;
+    } else {
+        throw new Error("Stripe module not properly loaded");
+    }
+} catch (error: any) {
+    // Only log warning once to reduce console noise (using global to persist across hot reloads)
+    if (!global.__STRIPE_WARNING_LOGGED__) {
+        // Suppress the error message - it's expected in Expo Go
+        global.__STRIPE_WARNING_LOGGED__ = true;
+    }
+    // Provide fallback hook that returns error functions
+    useStripe = () => ({
+        initPaymentSheet: async () => ({ 
+            error: { 
+                message: "Stripe is not available. Please build the app with native modules (development build).",
+                code: "STRIPE_NOT_AVAILABLE"
+            } 
+        }),
+        presentPaymentSheet: async () => ({ 
+            error: { 
+                message: "Stripe is not available. Please build the app with native modules (development build).",
+                code: "STRIPE_NOT_AVAILABLE"
+            } 
+        }),
+    });
+}
 
 // Plan selection component
 const freeFeatures = [
@@ -50,7 +91,9 @@ export default function PlanChoose() {
     const [clientSecret, setClientSecret] = useState<string | null>(null);
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
     
-    const { initPaymentSheet, presentPaymentSheet } = useStripe();
+    const stripe = useStripe();
+    const initPaymentSheet = stripe?.initPaymentSheet || (async () => ({ error: { message: "Stripe not available" } }));
+    const presentPaymentSheet = stripe?.presentPaymentSheet || (async () => ({ error: { message: "Stripe not available" } }));
 
     // Initialize payment sheet when client secret is available
     useEffect(() => {
@@ -82,6 +125,7 @@ export default function PlanChoose() {
         handleSubmit,
         setValue,
         watch,
+        reset,
     } = useForm<OnboardingPlanInput>({
         resolver: zodResolver(onboardingPlanSchema) as Resolver<OnboardingPlanInput>,
         defaultValues: {
@@ -92,6 +136,37 @@ export default function PlanChoose() {
 
     const watchedPlan = watch("selectedPlan");
     const watchedTrial = watch("trialSelected");
+
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step4: { subscriptionTier: string | null };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step4?.subscriptionTier) {
+                    reset({
+                        selectedPlan: response.data.step4.subscriptionTier as "free" | "premium",
+                        trialSelected: false,
+                    });
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved plan data found');
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
 
     const onSubmit: SubmitHandler<OnboardingPlanInput> = useCallback(
         async (data) => {
@@ -123,6 +198,12 @@ export default function PlanChoose() {
 
                 // If premium plan, create subscription setup and show payment sheet
                 if (data.selectedPlan === "premium") {
+                    if (!isStripeAvailable) {
+                        showToast.error("Stripe payment is not available. Please build the app with native modules enabled.", "Payment Unavailable");
+                        setIsNavigating(false);
+                        return;
+                    }
+
                     const paymentResponse = await apiService.post<{
                         success: boolean;
                         data: {
@@ -223,7 +304,7 @@ export default function PlanChoose() {
             showToast.error(errorMessage, "Payment Error");
             setIsProcessingPayment(false);
         }
-    }, [clientSecret, paymentIntentId, presentPaymentSheet, router]);
+    }, [clientSecret, paymentIntentId, router]);
 
     const onFormSubmit = handleSubmit(onSubmit);
 
@@ -566,6 +647,7 @@ export default function PlanChoose() {
                     </Text>
                     <MaterialIcons name="arrow-forward" size={20} color="white" style={{ marginLeft: 8 }} />
                 </TouchableOpacity>
+                )}
                 {watchedPlan === "free" && (
                     <Text
                         className={`text-center text-xs mt-3 ${

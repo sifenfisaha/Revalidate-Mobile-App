@@ -28,6 +28,7 @@ export const API_ENDPOINTS = {
       STEP_3: '/api/v1/users/onboarding/step-3',
       STEP_4: '/api/v1/users/onboarding/step-4',
       PROGRESS: '/api/v1/users/onboarding/progress',
+      DATA: '/api/v1/users/onboarding/data',
     },
   },
   CALENDAR: {

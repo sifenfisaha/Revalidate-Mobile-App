@@ -4,14 +4,37 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text } from 'react-native';
 import { ThemeProvider } from '@/features/theme/ThemeProvider';
 import { useThemeStore } from '@/features/theme/theme.store';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import Toast from 'react-native-toast-message';
 import "./global.css";
+
+// Safe Stripe import - handles cases where native modules aren't available
+let StripeProvider: any;
+let isStripeAvailable = false;
+
+// Global flag to prevent repeated warnings
+declare global {
+    var __STRIPE_LAYOUT_WARNING_LOGGED__: boolean | undefined;
+}
+
+// Try to load Stripe - will fail gracefully if native modules aren't available
+try {
+    const stripeModule = require("@stripe/stripe-react-native");
+    if (stripeModule && stripeModule.StripeProvider) {
+        StripeProvider = stripeModule.StripeProvider;
+        isStripeAvailable = true;
+    } else {
+        throw new Error("Stripe module not properly loaded");
+    }
+} catch (error: any) {
+    // Suppress the error - it's expected in Expo Go
+    // Provide a fallback component that just passes children through
+    StripeProvider = ({ children, publishableKey }: any) => <>{children}</>;
+}
 
 // Stripe publishable key - must be set via environment variable
 const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
 
-if (!STRIPE_PUBLISHABLE_KEY) {
+if (!STRIPE_PUBLISHABLE_KEY && isStripeAvailable) {
   console.warn('⚠️  EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set. Stripe payments will not work.');
 }
 
@@ -180,7 +203,9 @@ function StatusBarWrapper() {
 
 export default function RootLayout() {
     return (
-        <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+        <StripeProvider 
+            publishableKey={isStripeAvailable ? STRIPE_PUBLISHABLE_KEY : ''}
+        >
             <ThemeProvider>
                 <StatusBarWrapper />
                 <Stack

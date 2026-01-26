@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -27,6 +27,7 @@ export default function WorkingHoursScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useThemeStore();
   const [activeFilter, setActiveFilter] = useState<'all' | '3months' | 'revalidation'>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -106,6 +107,17 @@ export default function WorkingHoursScreen() {
         className="flex-1" 
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              setTimeout(() => setRefreshing(false), 1000);
+            }}
+            tintColor={isDark ? '#D4AF37' : '#2B5F9E'}
+            colors={['#D4AF37', '#2B5F9E']}
+          />
+        }
       >
         {/* Header */}
         <View className="px-4 py-4 mb-2">

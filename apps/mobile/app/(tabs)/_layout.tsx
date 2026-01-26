@@ -3,29 +3,38 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Platform, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeStore } from '@/features/theme/theme.store';
+import { usePremium } from '@/hooks/usePremium';
 import '../global.css';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { isDark } = useThemeStore();
+  const { isPremium } = usePremium();
+  
+  const activeColor = isPremium ? '#D4AF37' : '#2B5F9E';
   
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#2B5F9E',
+        tabBarActiveTintColor: activeColor,
         tabBarInactiveTintColor: isDark ? '#6B7280' : '#9CA3AF',
         tabBarStyle: {
           backgroundColor: Platform.OS === 'ios' 
             ? (isDark ? 'rgba(11, 18, 32, 0.8)' : 'rgba(255, 255, 255, 0.8)')
             : (isDark ? '#0B1220' : '#FFFFFF'),
-          borderTopWidth: 1,
-          borderTopColor: isDark ? '#1F2937' : '#E5E7EB',
+          borderTopWidth: isPremium ? 2 : 1,
+          borderTopColor: isPremium 
+            ? (isDark ? '#D4AF37' : '#D4AF37')
+            : (isDark ? '#1F2937' : '#E5E7EB'),
           height: 64 + insets.bottom,
           paddingBottom: insets.bottom + 8,
           paddingTop: 8,
-          elevation: 0,
-          shadowOpacity: 0,
+          elevation: isPremium ? 8 : 0,
+          shadowOpacity: isPremium ? 0.3 : 0,
+          shadowColor: isPremium ? '#D4AF37' : undefined,
+          shadowOffset: isPremium ? { width: 0, height: -2 } : undefined,
+          shadowRadius: isPremium ? 4 : undefined,
         },
         tabBarLabelStyle: {
           fontSize: 10,
@@ -45,7 +54,7 @@ export default function TabsLayout() {
             <MaterialIcons 
               name="home" 
               size={24} 
-              color={focused ? '#2B5F9E' : '#9CA3AF'} 
+              color={focused ? activeColor : '#9CA3AF'} 
             />
           ),
           tabBarLabel: ({ focused }) => (
@@ -53,7 +62,7 @@ export default function TabsLayout() {
               style={{ 
                 fontSize: 10, 
                 fontWeight: focused ? '700' : '500',
-                color: focused ? '#2B5F9E' : '#9CA3AF',
+                color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
               }}
             >
@@ -71,7 +80,7 @@ export default function TabsLayout() {
             <MaterialIcons 
               name="calendar-month" 
               size={24} 
-              color={focused ? '#2B5F9E' : '#9CA3AF'} 
+              color={focused ? activeColor : '#9CA3AF'} 
             />
           ),
           tabBarLabel: ({ focused }) => (
@@ -79,7 +88,7 @@ export default function TabsLayout() {
               style={{ 
                 fontSize: 10, 
                 fontWeight: focused ? '700' : '500',
-                color: focused ? '#2B5F9E' : '#9CA3AF',
+                color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
               }}
             >
@@ -97,7 +106,7 @@ export default function TabsLayout() {
             <MaterialIcons 
               name="photo-library" 
               size={24} 
-              color={focused ? '#2B5F9E' : '#9CA3AF'} 
+              color={focused ? activeColor : '#9CA3AF'} 
             />
           ),
           tabBarLabel: ({ focused }) => (
@@ -105,7 +114,7 @@ export default function TabsLayout() {
               style={{ 
                 fontSize: 10, 
                 fontWeight: focused ? '700' : '500',
-                color: focused ? '#2B5F9E' : '#9CA3AF',
+                color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
               }}
             >
@@ -123,7 +132,7 @@ export default function TabsLayout() {
             <MaterialIcons 
               name="person" 
               size={24} 
-              color={focused ? '#2B5F9E' : '#9CA3AF'} 
+              color={focused ? activeColor : '#9CA3AF'} 
             />
           ),
           tabBarLabel: ({ focused }) => (
@@ -131,7 +140,7 @@ export default function TabsLayout() {
               style={{ 
                 fontSize: 10, 
                 fontWeight: focused ? '700' : '500',
-                color: focused ? '#2B5F9E' : '#9CA3AF',
+                color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
               }}
             >

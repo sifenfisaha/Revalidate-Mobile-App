@@ -1,9 +1,8 @@
 import { API_CONFIG, API_ENDPOINTS } from '@revalidation-tracker/constants';
-
-/**
- * API Service
- * Centralized API client for making HTTP requests to the backend
- */
+import { checkNetworkStatus } from './network-monitor';
+import { queueOperation } from './sync-service';
+import { getSubscriptionInfo, canUseOfflineMode } from '@/utils/subscription';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class ApiService {
   private baseURL: string;
@@ -12,6 +11,62 @@ class ApiService {
   constructor() {
     this.baseURL = API_CONFIG.BASE_URL;
     this.timeout = API_CONFIG.TIMEOUT;
+  }
+
+  private async shouldQueueOffline(endpoint: string): Promise<{ shouldQueue: boolean; isFreeUser: boolean }> {
+    const isConnected = await checkNetworkStatus();
+    if (isConnected) return { shouldQueue: false, isFreeUser: false };
+
+    const subscriptionInfo = await getSubscriptionInfo();
+    if (!subscriptionInfo) {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        if (token) {
+          const response = await this.getRaw<{
+            success: boolean;
+            data: { subscriptionTier: string };
+          }>(API_ENDPOINTS.USERS.ME, token);
+          
+          if (response?.data?.subscriptionTier) {
+            const tier = response.data.subscriptionTier;
+            const canOffline = canUseOfflineMode(tier);
+            await this.updateSubscriptionCache(tier);
+            return { shouldQueue: canOffline, isFreeUser: tier === 'free' };
+          }
+        }
+      } catch (error) {
+        console.error('Error checking subscription for offline mode:', error);
+      }
+      return { shouldQueue: false, isFreeUser: true };
+    }
+
+    return { shouldQueue: subscriptionInfo.canUseOffline, isFreeUser: !subscriptionInfo.isPremium };
+  }
+
+  private async updateSubscriptionCache(subscriptionTier: string): Promise<void> {
+    const { setSubscriptionInfo } = await import('@/utils/subscription');
+    await setSubscriptionInfo({
+      subscriptionTier: subscriptionTier as 'free' | 'premium',
+      subscriptionStatus: 'active',
+      isPremium: subscriptionTier === 'premium',
+      canUseOffline: subscriptionTier === 'premium',
+    });
+  }
+
+  private async getRaw<T>(endpoint: string, token?: string): Promise<T> {
+    const response = await fetch(this.getUrl(endpoint), {
+      method: 'GET',
+      headers: this.getHeaders(token),
+      signal: this.createTimeoutSignal(this.timeout),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
   }
 
   /**
@@ -40,92 +95,135 @@ class ApiService {
   }
 
   /**
-   * Make a GET request
+   * Create an AbortController with timeout
    */
-  async get<T>(endpoint: string, token?: string): Promise<T> {
-    const response = await fetch(this.getUrl(endpoint), {
-      method: 'GET',
-      headers: this.getHeaders(token),
-      signal: AbortSignal.timeout(this.timeout),
-    });
-
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
+  private createTimeoutSignal(timeoutMs: number): AbortSignal {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), timeoutMs);
+    return controller.signal;
   }
 
-  /**
-   * Make a POST request
-   */
+  async get<T>(endpoint: string, token?: string): Promise<T> {
+    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
+    
+    if (shouldQueue) {
+      await queueOperation('GET', endpoint, undefined, token ? { Authorization: `Bearer ${token}` } : undefined);
+      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+    }
+    
+    if (isFreeUser) {
+      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
+    }
+
+    return this.getRaw<T>(endpoint, token);
+  }
+
   async post<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
+    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
+    
+    if (shouldQueue) {
+      await queueOperation('POST', endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
+      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+    }
+    
+    if (isFreeUser) {
+      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
+    }
+
     const response = await fetch(this.getUrl(endpoint), {
       method: 'POST',
       headers: this.getHeaders(token),
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: this.createTimeoutSignal(this.timeout),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(error.message || `API Error: ${response.status} ${response.statusText}`);
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();
   }
 
-  /**
-   * Make a PUT request
-   */
   async put<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
+    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
+    
+    if (shouldQueue) {
+      await queueOperation('PUT', endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
+      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+    }
+    
+    if (isFreeUser) {
+      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
+    }
+
     const response = await fetch(this.getUrl(endpoint), {
       method: 'PUT',
       headers: this.getHeaders(token),
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: this.createTimeoutSignal(this.timeout),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(error.message || `API Error: ${response.status} ${response.statusText}`);
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();
   }
 
-  /**
-   * Make a PATCH request
-   */
   async patch<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
+    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
+    
+    if (shouldQueue) {
+      await queueOperation('PATCH', endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
+      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+    }
+    
+    if (isFreeUser) {
+      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
+    }
+
     const response = await fetch(this.getUrl(endpoint), {
       method: 'PATCH',
       headers: this.getHeaders(token),
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: this.createTimeoutSignal(this.timeout),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(error.message || `API Error: ${response.status} ${response.statusText}`);
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();
   }
 
-  /**
-   * Make a DELETE request
-   */
   async delete<T>(endpoint: string, token?: string): Promise<T> {
+    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
+    
+    if (shouldQueue) {
+      await queueOperation('DELETE', endpoint, undefined, token ? { Authorization: `Bearer ${token}` } : undefined);
+      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+    }
+    
+    if (isFreeUser) {
+      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
+    }
+
     const response = await fetch(this.getUrl(endpoint), {
       method: 'DELETE',
       headers: this.getHeaders(token),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: this.createTimeoutSignal(this.timeout),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(error.message || `API Error: ${response.status} ${response.statusText}`);
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();
@@ -168,12 +266,14 @@ class ApiService {
       method: 'POST',
       headers,
       body: formData,
-      signal: AbortSignal.timeout(this.timeout * 2), // Longer timeout for file uploads
+      signal: this.createTimeoutSignal(this.timeout * 2), // Longer timeout for file uploads
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: response.statusText }));
-      throw new Error(error.message || `API Error: ${response.status} ${response.statusText}`);
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      // API returns { success: false, error: "message" } or { message: "..." }
+      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();

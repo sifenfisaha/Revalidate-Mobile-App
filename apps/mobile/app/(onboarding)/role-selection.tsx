@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -6,11 +6,14 @@ import { useRouter } from "expo-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Resolver, SubmitHandler } from "react-hook-form";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     onboardingRoleSchema,
     type OnboardingRoleInput,
 } from "@/validation/schema";
 import { useThemeStore } from "@/features/theme/theme.store";
+import { apiService, API_ENDPOINTS } from "@/services/api";
+import { showToast } from "@/utils/toast";
 import "../global.css";
 
 const roles = [
@@ -24,11 +27,14 @@ const roles = [
 export default function RoleSelection() {
     const router = useRouter();
     const { isDark } = useThemeStore();
+    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(true);
 
     const {
         handleSubmit,
         setValue,
         watch,
+        reset,
         formState: { errors },
     } = useForm<OnboardingRoleInput>({
         resolver: zodResolver(onboardingRoleSchema) as Resolver<OnboardingRoleInput>,
@@ -37,12 +43,91 @@ export default function RoleSelection() {
 
     const watchedRole = watch("role");
 
-    const onSubmit: SubmitHandler<OnboardingRoleInput> = (data) => {
-        console.log("Onboarding role submitted:", data);
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    setIsLoadingData(false);
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step1: { role: string | null };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step1?.role) {
+                    // Map backend role to frontend role
+                    const backendRole = response.data.step1.role;
+                    let frontendRole = backendRole;
+                    // Map 'other_healthcare' back to 'other' or 'dentist' if needed
+                    if (backendRole === 'other_healthcare') {
+                        frontendRole = 'other';
+                    }
+                    reset({ role: frontendRole as any });
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved role data found');
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
+
+    // Map frontend role values to backend API values
+    const mapRoleToBackend = (role: string): 'doctor' | 'nurse' | 'pharmacist' | 'other_healthcare' => {
+        if (role === 'doctor' || role === 'nurse' || role === 'pharmacist') {
+            return role;
+        }
+        // Map 'dentist' and 'other' to 'other_healthcare'
+        return 'other_healthcare';
+    };
+
+    const onSubmit: SubmitHandler<OnboardingRoleInput> = async (data) => {
+        try {
+            setIsLoading(true);
+
+            // Get auth token
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) {
+                showToast.error("Please log in again", "Error");
+                router.replace("/(auth)/login");
+                return;
+            }
+
+            // Map role to backend format
+            const backendRole = mapRoleToBackend(data.role);
+
+            // Call API to save role
+            await apiService.post(
+                API_ENDPOINTS.USERS.ONBOARDING.STEP_1,
+                {
+                    professional_role: backendRole,
+                },
+                token
+            );
+
+            // Navigate to next step
         router.push({
             pathname: "/(onboarding)/personal-details",
             params: { role: data.role },
         });
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error 
+                ? error.message 
+                : "Failed to save role. Please try again.";
+            
+            showToast.error(errorMessage, "Error");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const onFormSubmit = handleSubmit(onSubmit);
@@ -179,7 +264,10 @@ export default function RoleSelection() {
             <View className={`px-6 pb-8 pt-4 border-t ${isDark ? "border-slate-700/50" : "border-gray-200"}`}>
                 <Pressable
                     onPress={onFormSubmit}
-                    className="w-full py-4 rounded-2xl flex-row items-center justify-center bg-primary active:opacity-90"
+                    disabled={isLoading}
+                    className={`w-full py-4 rounded-2xl flex-row items-center justify-center active:opacity-90 ${
+                        isLoading ? "bg-primary/50" : "bg-primary"
+                    }`}
                     style={{
                         shadowColor: "#1E5AF3",
                         shadowOffset: { width: 0, height: 8 },
@@ -188,8 +276,14 @@ export default function RoleSelection() {
                         elevation: 8,
                     }}
                 >
+                    {isLoading ? (
+                        <Text className="text-white font-semibold text-base">Saving...</Text>
+                    ) : (
+                        <>
                     <Text className="text-white font-semibold text-base">Continue</Text>
                     <MaterialIcons name="arrow-forward" size={20} color="white" style={{ marginLeft: 8 }} />
+                        </>
+                    )}
                 </Pressable>
             </View>
         </SafeAreaView>

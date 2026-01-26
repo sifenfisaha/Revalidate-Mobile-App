@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -6,12 +6,57 @@ import { useRouter } from "expo-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Resolver, SubmitHandler } from "react-hook-form";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     onboardingPlanSchema,
     type OnboardingPlanInput,
 } from "@/validation/schema";
 import { useThemeStore } from "@/features/theme/theme.store";
+import { apiService, API_ENDPOINTS } from "@/services/api";
+import { showToast } from "@/utils/toast";
 import "../global.css";
+
+// Safe Stripe import - handles cases where native modules aren't available
+let useStripe: any;
+let isStripeAvailable = false;
+
+// Global flag to prevent repeated warnings (persists across hot reloads)
+declare global {
+    var __STRIPE_WARNING_LOGGED__: boolean | undefined;
+}
+
+// Try to load Stripe - will fail gracefully if native modules aren't available
+try {
+    // Try to import Stripe - this will fail if native modules aren't available
+    const stripeModule = require("@stripe/stripe-react-native");
+    if (stripeModule && stripeModule.useStripe) {
+        useStripe = stripeModule.useStripe;
+        isStripeAvailable = true;
+    } else {
+        throw new Error("Stripe module not properly loaded");
+    }
+} catch (error: any) {
+    // Only log warning once to reduce console noise (using global to persist across hot reloads)
+    if (!global.__STRIPE_WARNING_LOGGED__) {
+        // Suppress the error message - it's expected in Expo Go
+        global.__STRIPE_WARNING_LOGGED__ = true;
+    }
+    // Provide fallback hook that returns error functions
+    useStripe = () => ({
+        initPaymentSheet: async () => ({ 
+            error: { 
+                message: "Stripe is not available. Please build the app with native modules (development build).",
+                code: "STRIPE_NOT_AVAILABLE"
+            } 
+        }),
+        presentPaymentSheet: async () => ({ 
+            error: { 
+                message: "Stripe is not available. Please build the app with native modules (development build).",
+                code: "STRIPE_NOT_AVAILABLE"
+            } 
+        }),
+    });
+}
 
 // Plan selection component
 const freeFeatures = [
@@ -42,11 +87,45 @@ export default function PlanChoose() {
     const router = useRouter();
     const { isDark } = useThemeStore();
     const [isNavigating, setIsNavigating] = useState(false);
+    const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+    const [clientSecret, setClientSecret] = useState<string | null>(null);
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+    
+    const stripe = useStripe();
+    const initPaymentSheet = stripe?.initPaymentSheet || (async () => ({ error: { message: "Stripe not available" } }));
+    const presentPaymentSheet = stripe?.presentPaymentSheet || (async () => ({ error: { message: "Stripe not available" } }));
+
+    // Initialize payment sheet when client secret is available
+    useEffect(() => {
+        if (clientSecret) {
+            initializePaymentSheet();
+        }
+    }, [clientSecret]);
+
+    const initializePaymentSheet = async () => {
+        if (!clientSecret) return;
+
+        try {
+            const { error } = await initPaymentSheet({
+                paymentIntentClientSecret: clientSecret,
+                merchantDisplayName: 'Revalidation Tracker',
+            });
+
+            if (error) {
+                showToast.error(error.message || "Failed to initialize payment", "Error");
+                setIsNavigating(false);
+            }
+        } catch (error: any) {
+            showToast.error(error.message || "Failed to initialize payment", "Error");
+            setIsNavigating(false);
+        }
+    };
 
     const {
         handleSubmit,
         setValue,
         watch,
+        reset,
     } = useForm<OnboardingPlanInput>({
         resolver: zodResolver(onboardingPlanSchema) as Resolver<OnboardingPlanInput>,
         defaultValues: {
@@ -58,22 +137,174 @@ export default function PlanChoose() {
     const watchedPlan = watch("selectedPlan");
     const watchedTrial = watch("trialSelected");
 
-    const onSubmit: SubmitHandler<OnboardingPlanInput> = useCallback(
-        (data) => {
-            if (isNavigating) return;
-            console.log("Onboarding plan submitted:", data);
-            setIsNavigating(true);
-            setTimeout(() => {
-                try {
-                    router.replace("/(tabs)/home");
-                } catch (error) {
-                    console.error("Navigation error:", error);
-                    setIsNavigating(false);
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    return;
                 }
-            }, 0);
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step4: { subscriptionTier: string | null };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step4?.subscriptionTier) {
+                    reset({
+                        selectedPlan: response.data.step4.subscriptionTier as "free" | "premium",
+                        trialSelected: false,
+                    });
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved plan data found');
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
+
+    const onSubmit: SubmitHandler<OnboardingPlanInput> = useCallback(
+        async (data) => {
+            if (isNavigating) return;
+            
+            try {
+                setIsNavigating(true);
+
+                // Get auth token
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    showToast.error("Please log in again", "Error");
+                    router.replace("/(auth)/login");
+                    return;
+                }
+
+                // If free plan, just save and continue
+                if (data.selectedPlan === "free") {
+                    await apiService.post(
+                        API_ENDPOINTS.USERS.ONBOARDING.STEP_4,
+                        {
+                            subscription_tier: data.selectedPlan,
+                        },
+                        token
+                    );
+                    router.replace("/(tabs)/home");
+                    return;
+                }
+
+                // If premium plan, create subscription setup and show payment sheet
+                if (data.selectedPlan === "premium") {
+                    if (!isStripeAvailable) {
+                        showToast.error("Stripe payment is not available. Please build the app with native modules enabled.", "Payment Unavailable");
+                        setIsNavigating(false);
+                        return;
+                    }
+
+                    const paymentResponse = await apiService.post<{
+                        success: boolean;
+                        data: {
+                            clientSecret: string;
+                            subscriptionId?: string;
+                            paymentIntentId?: string;
+                            type: 'subscription' | 'one-time';
+                        };
+                    }>(
+                        API_ENDPOINTS.PAYMENT.CREATE_INTENT,
+                        {},
+                        token
+                    );
+
+                    if (paymentResponse?.data?.clientSecret) {
+                        setPaymentIntentId(paymentResponse.data.paymentIntentId || paymentResponse.data.subscriptionId || null);
+                        setClientSecret(paymentResponse.data.clientSecret);
+                        // Payment sheet will be initialized via useEffect
+                        // Then show payment button or auto-present
+                        setIsNavigating(false);
+                    } else {
+                        throw new Error("Failed to create payment intent");
+                    }
+                }
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error 
+                    ? error.message 
+                    : "Failed to process plan selection. Please try again.";
+                
+                showToast.error(errorMessage, "Error");
+                setIsNavigating(false);
+            }
         },
         [router, isNavigating]
     );
+
+    // Handle payment - present payment sheet
+    const handlePayment = useCallback(async () => {
+        if (!clientSecret || !paymentIntentId) {
+            showToast.error("Payment information missing", "Error");
+            return;
+        }
+
+        try {
+            setIsProcessingPayment(true);
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) {
+                showToast.error("Please log in again", "Error");
+                setIsProcessingPayment(false);
+                return;
+            }
+
+            // Present payment sheet
+            const { error } = await presentPaymentSheet();
+
+            if (error) {
+                if (error.code !== 'Canceled') {
+                    showToast.error(error.message || "Payment failed", "Payment Error");
+                }
+                setIsProcessingPayment(false);
+                return;
+            }
+
+            // Payment succeeded - confirm on backend
+            const confirmPayload: { paymentIntentId?: string; subscriptionId?: string } = {};
+            if (paymentIntentId) {
+                // Check if it's a subscription ID (starts with 'sub_') or payment intent ID
+                if (paymentIntentId.startsWith('sub_')) {
+                    confirmPayload.subscriptionId = paymentIntentId;
+                } else {
+                    confirmPayload.paymentIntentId = paymentIntentId;
+                }
+            }
+            
+            await apiService.post(
+                API_ENDPOINTS.PAYMENT.CONFIRM,
+                confirmPayload,
+                token
+            );
+
+            // Save subscription plan
+            await apiService.post(
+                API_ENDPOINTS.USERS.ONBOARDING.STEP_4,
+                {
+                    subscription_tier: "premium",
+                },
+                token
+            );
+
+            setClientSecret(null);
+            setPaymentIntentId(null);
+            showToast.success("Payment successful! Premium plan activated.", "Success");
+            router.replace("/(tabs)/home");
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error 
+                ? error.message 
+                : "Payment processing failed. Please try again.";
+            showToast.error(errorMessage, "Payment Error");
+            setIsProcessingPayment(false);
+        }
+    }, [clientSecret, paymentIntentId, router]);
 
     const onFormSubmit = handleSubmit(onSubmit);
 
@@ -363,10 +594,37 @@ export default function PlanChoose() {
                 </View>
             </ScrollView>
 
-            {/* Continue Button */}
+            {/* Continue/Payment Button */}
             <View className={`px-6 pb-8 pt-4 border-t ${isDark ? "border-slate-700/50" : "border-gray-200"}`}>
-                <TouchableOpacity
-                    onPress={onFormSubmit}
+                {watchedPlan === "premium" && clientSecret ? (
+                    <TouchableOpacity
+                        onPress={handlePayment}
+                        disabled={isProcessingPayment || isNavigating}
+                        className={`w-full py-4 rounded-2xl flex-row items-center justify-center ${
+                            isProcessingPayment || isNavigating
+                                ? "bg-primary/50"
+                                : "bg-primary"
+                        }`}
+                        style={{
+                            shadowColor: "#1E5AF3",
+                            shadowOffset: { width: 0, height: 8 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 12,
+                            elevation: 8,
+                        }}
+                    >
+                        {isProcessingPayment ? (
+                            <Text className="text-white font-bold text-base">Processing Payment...</Text>
+                        ) : (
+                            <>
+                                <MaterialIcons name="lock" size={20} color="white" style={{ marginRight: 8 }} />
+                                <Text className="text-white font-bold text-base">Pay & Continue</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity
+                        onPress={onFormSubmit}
                     activeOpacity={0.8}
                     disabled={isNavigating}
                     className={`w-full bg-primary py-4 rounded-2xl flex-row items-center justify-center ${
@@ -389,6 +647,7 @@ export default function PlanChoose() {
                     </Text>
                     <MaterialIcons name="arrow-forward" size={20} color="white" style={{ marginLeft: 8 }} />
                 </TouchableOpacity>
+                )}
                 {watchedPlan === "free" && (
                     <Text
                         className={`text-center text-xs mt-3 ${
@@ -399,6 +658,7 @@ export default function PlanChoose() {
                     </Text>
                 )}
             </View>
+
         </SafeAreaView>
     );
 }

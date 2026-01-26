@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, Modal, TextInput } from 'react-native';
+import { View, Text, ScrollView, Pressable, Modal, TextInput, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useState } from 'react';
@@ -41,6 +41,7 @@ export default function CalendarScreen() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -228,12 +229,27 @@ export default function CalendarScreen() {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  };
+
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
       <ScrollView 
         className="flex-1" 
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#D4AF37' : '#2B5F9E'}
+            colors={['#D4AF37', '#2B5F9E']}
+          />
+        }
       >
         {/* Header */}
         <View className="px-6 py-4 flex-row justify-between items-center">

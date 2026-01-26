@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, Modal, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -6,11 +6,14 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Resolver, SubmitHandler } from "react-hook-form";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     onboardingProfessionalDetailsSchema,
     type OnboardingProfessionalDetailsInput,
 } from "@/validation/schema";
 import { useThemeStore } from "@/features/theme/theme.store";
+import { apiService, API_ENDPOINTS } from "@/services/api";
+import { showToast } from "@/utils/toast";
 import "../global.css";
 
 const roleConfig = {
@@ -118,6 +121,8 @@ export default function ProfessionalDetails() {
     const config = roleConfig[role as keyof typeof roleConfig] || roleConfig.other;
 
     const { isDark } = useThemeStore();
+    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(true);
     const [showWorkSettingModal, setShowWorkSettingModal] = useState(false);
     const [showScopeModal, setShowScopeModal] = useState(false);
     const [showProfessionalRegistrationsModal, setShowProfessionalRegistrationsModal] = useState(false);
@@ -132,6 +137,7 @@ export default function ProfessionalDetails() {
         handleSubmit,
         setValue,
         watch,
+        reset,
         formState: { errors },
     } = useForm<OnboardingProfessionalDetailsInput>({
         resolver: zodResolver(onboardingProfessionalDetailsSchema) as Resolver<OnboardingProfessionalDetailsInput>,
@@ -147,6 +153,74 @@ export default function ProfessionalDetails() {
             notepad: "",
         },
     });
+
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    setIsLoadingData(false);
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step3: {
+                            registrationNumber: string;
+                            revalidationDate: string | null;
+                            workSetting?: string;
+                            scope?: string;
+                            professionalRegistrations: string[];
+                            registrationPin: string;
+                            hourlyRate: number;
+                            workHoursCompleted: number;
+                            trainingHoursCompleted: number;
+                            earningsCurrentYear: number;
+                            workDescription: string;
+                            notepad: string;
+                        };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step3) {
+                    const step3 = response.data.step3;
+                    const revalidationDate = step3.revalidationDate 
+                        ? new Date(step3.revalidationDate) 
+                        : undefined;
+
+                    reset({
+                        registrationNumber: step3.registrationNumber || "",
+                        professionalRegistrations: (step3.professionalRegistrations || []) as any,
+                        registrationPin: step3.registrationPin || "",
+                        hourlyRate: step3.hourlyRate || 0,
+                        workHoursCompleted: step3.workHoursCompleted || 0,
+                        trainingHoursCompleted: step3.trainingHoursCompleted || 0,
+                        earningsCurrentYear: step3.earningsCurrentYear || 0,
+                        workDescription: step3.workDescription || "",
+                        notepad: step3.notepad || "",
+                        revalidationDate: revalidationDate,
+                        workSetting: step3.workSetting as any,
+                        scope: step3.scope as any,
+                    });
+
+                    // Set date picker to saved date if available
+                    if (revalidationDate) {
+                        setSelectedMonth(revalidationDate.getMonth());
+                        setSelectedYear(revalidationDate.getFullYear());
+                    }
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved professional details found');
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
 
     const watchedDate = watch("revalidationDate");
     const watchedWorkSetting = watch("workSetting");
@@ -279,9 +353,83 @@ export default function ProfessionalDetails() {
         return days;
     };
 
-    const onSubmit: SubmitHandler<OnboardingProfessionalDetailsInput> = (data) => {
-        console.log("Onboarding professional details submitted:", data);
+    // Format date to YYYY-MM-DD
+    const formatDateForAPI = (date: Date): string => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    const onSubmit: SubmitHandler<OnboardingProfessionalDetailsInput> = async (data) => {
+        try {
+            setIsLoading(true);
+
+            // Get auth token
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) {
+                showToast.error("Please log in again", "Error");
+                router.replace("/(auth)/login");
+                return;
+            }
+
+            // Map frontend fields to backend API format
+            const apiData: any = {
+                gmc_registration_number: data.registrationNumber,
+                revalidation_date: formatDateForAPI(data.revalidationDate),
+            };
+
+            // Add optional fields if they exist
+            if (data.workSetting) {
+                apiData.work_setting = data.workSetting;
+            }
+            if (data.scope) {
+                apiData.scope_of_practice = data.scope;
+            }
+            if (data.professionalRegistrations && data.professionalRegistrations.length > 0) {
+                // Convert array to comma-separated string
+                apiData.professional_registrations = data.professionalRegistrations.join(',');
+            }
+            if (data.registrationPin) {
+                apiData.registration_reference_pin = data.registrationPin;
+            }
+            if (data.hourlyRate !== undefined && data.hourlyRate > 0) {
+                apiData.hourly_rate = data.hourlyRate;
+            }
+            if (data.workHoursCompleted !== undefined && data.workHoursCompleted > 0) {
+                apiData.work_hours_completed_already = data.workHoursCompleted;
+            }
+            if (data.trainingHoursCompleted !== undefined && data.trainingHoursCompleted > 0) {
+                apiData.training_hours_completed_already = data.trainingHoursCompleted;
+            }
+            if (data.earningsCurrentYear !== undefined && data.earningsCurrentYear > 0) {
+                apiData.earned_current_financial_year = data.earningsCurrentYear;
+            }
+            if (data.workDescription) {
+                apiData.brief_description_of_work = data.workDescription;
+            }
+            if (data.notepad) {
+                apiData.notepad = data.notepad;
+            }
+
+            // Call API to save professional details
+            await apiService.post(
+                API_ENDPOINTS.USERS.ONBOARDING.STEP_3,
+                apiData,
+                token
+            );
+
+            // Navigate to next step
         router.push("/(onboarding)/plan-choose");
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error 
+                ? error.message 
+                : "Failed to save professional details. Please try again.";
+            
+            showToast.error(errorMessage, "Error");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const onFormSubmit = handleSubmit(onSubmit);
@@ -666,41 +814,72 @@ export default function ProfessionalDetails() {
                             <Controller
                                 control={control}
                                 name="hourlyRate"
-                                render={({ field: { value, onChange, onBlur } }) => (
-                                    <View className="relative">
-                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                            <MaterialIcons
-                                                name="attach-money"
-                                                size={22}
-                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                render={({ field: { value, onChange, onBlur } }) => {
+                                    const [displayValue, setDisplayValue] = useState(
+                                        value !== undefined && value !== null ? value.toString() : ""
+                                    );
+                                    
+                                    // Sync display value when form value changes externally (e.g., from saved data)
+                                    useEffect(() => {
+                                        if (value !== undefined && value !== null) {
+                                            setDisplayValue(value.toString());
+                                        }
+                                    }, [value]);
+
+                                    return (
+                                        <View className="relative">
+                                            <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                                <MaterialIcons
+                                                    name="attach-money"
+                                                    size={22}
+                                                    color={isDark ? "#6B7280" : "#9CA3AF"}
+                                                />
+                                            </View>
+                                            <TextInput
+                                                className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
+                                                    isDark
+                                                        ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                        : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                                } ${errors.hourlyRate ? "border-red-500" : ""}`}
+                                                style={{
+                                                    shadowColor: isDark ? "#000" : "#000",
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    shadowOpacity: isDark ? 0.1 : 0.05,
+                                                    shadowRadius: 4,
+                                                    elevation: 2,
+                                                }}
+                                                placeholder="0.00"
+                                                placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                                value={displayValue}
+                                                onChangeText={(text) => {
+                                                    // Allow digits, decimal point, and empty string
+                                                    const cleaned = text.replace(/[^0-9.]/g, '');
+                                                    // Only allow one decimal point
+                                                    const parts = cleaned.split('.');
+                                                    const formatted = parts.length > 2 
+                                                        ? parts[0] + '.' + parts.slice(1).join('')
+                                                        : cleaned;
+                                                    setDisplayValue(formatted);
+                                                    // Convert to number for form validation
+                                                    const num = formatted === '' || formatted === '.' ? 0 : parseFloat(formatted);
+                                                    onChange(isNaN(num) ? 0 : num);
+                                                }}
+                                                onBlur={() => {
+                                                    onBlur();
+                                                    // Ensure display value matches the numeric value
+                                                    const num = parseFloat(displayValue);
+                                                    if (!isNaN(num)) {
+                                                        setDisplayValue(num.toString());
+                                                    } else {
+                                                        setDisplayValue("");
+                                                    }
+                                                }}
+                                                keyboardType="decimal-pad"
+                                                autoCorrect={false}
                                             />
                                         </View>
-                                        <TextInput
-                                            className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
-                                                isDark
-                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                            } ${errors.hourlyRate ? "border-red-500" : ""}`}
-                                            style={{
-                                                shadowColor: isDark ? "#000" : "#000",
-                                                shadowOffset: { width: 0, height: 2 },
-                                                shadowOpacity: isDark ? 0.1 : 0.05,
-                                                shadowRadius: 4,
-                                                elevation: 2,
-                                            }}
-                                            placeholder="0.00"
-                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                            value={value?.toString() || ""}
-                                            onChangeText={(text) => {
-                                                const num = parseFloat(text) || 0;
-                                                onChange(num);
-                                            }}
-                                            onBlur={onBlur}
-                                            keyboardType="decimal-pad"
-                                            autoCorrect={false}
-                                        />
-                                    </View>
-                                )}
+                                    );
+                                }}
                             />
                             {errors.hourlyRate && (
                                 <Text className="text-red-500 text-sm mt-1.5">
@@ -725,41 +904,72 @@ export default function ProfessionalDetails() {
                             <Controller
                                 control={control}
                                 name="workHoursCompleted"
-                                render={({ field: { value, onChange, onBlur } }) => (
-                                    <View className="relative">
-                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                            <MaterialIcons
-                                                name="access-time"
-                                                size={22}
-                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                render={({ field: { value, onChange, onBlur } }) => {
+                                    const [displayValue, setDisplayValue] = useState(
+                                        value !== undefined && value !== null ? value.toString() : ""
+                                    );
+                                    
+                                    // Sync display value when form value changes externally (e.g., from saved data)
+                                    useEffect(() => {
+                                        if (value !== undefined && value !== null) {
+                                            setDisplayValue(value.toString());
+                                        }
+                                    }, [value]);
+
+                                    return (
+                                        <View className="relative">
+                                            <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                                <MaterialIcons
+                                                    name="access-time"
+                                                    size={22}
+                                                    color={isDark ? "#6B7280" : "#9CA3AF"}
+                                                />
+                                            </View>
+                                            <TextInput
+                                                className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
+                                                    isDark
+                                                        ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                        : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                                } ${errors.workHoursCompleted ? "border-red-500" : ""}`}
+                                                style={{
+                                                    shadowColor: isDark ? "#000" : "#000",
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    shadowOpacity: isDark ? 0.1 : 0.05,
+                                                    shadowRadius: 4,
+                                                    elevation: 2,
+                                                }}
+                                                placeholder="0.00"
+                                                placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                                value={displayValue}
+                                                onChangeText={(text) => {
+                                                    // Allow digits, decimal point, and empty string
+                                                    const cleaned = text.replace(/[^0-9.]/g, '');
+                                                    // Only allow one decimal point
+                                                    const parts = cleaned.split('.');
+                                                    const formatted = parts.length > 2 
+                                                        ? parts[0] + '.' + parts.slice(1).join('')
+                                                        : cleaned;
+                                                    setDisplayValue(formatted);
+                                                    // Convert to number for form validation
+                                                    const num = formatted === '' || formatted === '.' ? 0 : parseFloat(formatted);
+                                                    onChange(isNaN(num) ? 0 : num);
+                                                }}
+                                                onBlur={() => {
+                                                    onBlur();
+                                                    // Ensure display value matches the numeric value
+                                                    const num = parseFloat(displayValue);
+                                                    if (!isNaN(num)) {
+                                                        setDisplayValue(num.toString());
+                                                    } else {
+                                                        setDisplayValue("");
+                                                    }
+                                                }}
+                                                keyboardType="decimal-pad"
+                                                autoCorrect={false}
                                             />
                                         </View>
-                                        <TextInput
-                                            className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
-                                                isDark
-                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                            } ${errors.workHoursCompleted ? "border-red-500" : ""}`}
-                                            style={{
-                                                shadowColor: isDark ? "#000" : "#000",
-                                                shadowOffset: { width: 0, height: 2 },
-                                                shadowOpacity: isDark ? 0.1 : 0.05,
-                                                shadowRadius: 4,
-                                                elevation: 2,
-                                            }}
-                                            placeholder="0.00"
-                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                            value={value?.toString() || ""}
-                                            onChangeText={(text) => {
-                                                const num = parseFloat(text) || 0;
-                                                onChange(num);
-                                            }}
-                                            onBlur={onBlur}
-                                            keyboardType="decimal-pad"
-                                            autoCorrect={false}
-                                        />
-                                    </View>
-                                )}
+                                    );
+                                }}
                             />
                             {errors.workHoursCompleted && (
                                 <Text className="text-red-500 text-sm mt-1.5">
@@ -784,41 +994,72 @@ export default function ProfessionalDetails() {
                             <Controller
                                 control={control}
                                 name="trainingHoursCompleted"
-                                render={({ field: { value, onChange, onBlur } }) => (
-                                    <View className="relative">
-                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                            <MaterialIcons
-                                                name="school"
-                                                size={22}
-                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                render={({ field: { value, onChange, onBlur } }) => {
+                                    const [displayValue, setDisplayValue] = useState(
+                                        value !== undefined && value !== null ? value.toString() : ""
+                                    );
+                                    
+                                    // Sync display value when form value changes externally (e.g., from saved data)
+                                    useEffect(() => {
+                                        if (value !== undefined && value !== null) {
+                                            setDisplayValue(value.toString());
+                                        }
+                                    }, [value]);
+
+                                    return (
+                                        <View className="relative">
+                                            <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                                <MaterialIcons
+                                                    name="school"
+                                                    size={22}
+                                                    color={isDark ? "#6B7280" : "#9CA3AF"}
+                                                />
+                                            </View>
+                                            <TextInput
+                                                className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
+                                                    isDark
+                                                        ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                        : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                                } ${errors.trainingHoursCompleted ? "border-red-500" : ""}`}
+                                                style={{
+                                                    shadowColor: isDark ? "#000" : "#000",
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    shadowOpacity: isDark ? 0.1 : 0.05,
+                                                    shadowRadius: 4,
+                                                    elevation: 2,
+                                                }}
+                                                placeholder="0.00"
+                                                placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                                value={displayValue}
+                                                onChangeText={(text) => {
+                                                    // Allow digits, decimal point, and empty string
+                                                    const cleaned = text.replace(/[^0-9.]/g, '');
+                                                    // Only allow one decimal point
+                                                    const parts = cleaned.split('.');
+                                                    const formatted = parts.length > 2 
+                                                        ? parts[0] + '.' + parts.slice(1).join('')
+                                                        : cleaned;
+                                                    setDisplayValue(formatted);
+                                                    // Convert to number for form validation
+                                                    const num = formatted === '' || formatted === '.' ? 0 : parseFloat(formatted);
+                                                    onChange(isNaN(num) ? 0 : num);
+                                                }}
+                                                onBlur={() => {
+                                                    onBlur();
+                                                    // Ensure display value matches the numeric value
+                                                    const num = parseFloat(displayValue);
+                                                    if (!isNaN(num)) {
+                                                        setDisplayValue(num.toString());
+                                                    } else {
+                                                        setDisplayValue("");
+                                                    }
+                                                }}
+                                                keyboardType="decimal-pad"
+                                                autoCorrect={false}
                                             />
                                         </View>
-                                        <TextInput
-                                            className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
-                                                isDark
-                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                            } ${errors.trainingHoursCompleted ? "border-red-500" : ""}`}
-                                            style={{
-                                                shadowColor: isDark ? "#000" : "#000",
-                                                shadowOffset: { width: 0, height: 2 },
-                                                shadowOpacity: isDark ? 0.1 : 0.05,
-                                                shadowRadius: 4,
-                                                elevation: 2,
-                                            }}
-                                            placeholder="0"
-                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                            value={value?.toString() || ""}
-                                            onChangeText={(text) => {
-                                                const num = parseFloat(text) || 0;
-                                                onChange(num);
-                                            }}
-                                            onBlur={onBlur}
-                                            keyboardType="decimal-pad"
-                                            autoCorrect={false}
-                                        />
-                                    </View>
-                                )}
+                                    );
+                                }}
                             />
                             {errors.trainingHoursCompleted && (
                                 <Text className="text-red-500 text-sm mt-1.5">
@@ -843,41 +1084,72 @@ export default function ProfessionalDetails() {
                             <Controller
                                 control={control}
                                 name="earningsCurrentYear"
-                                render={({ field: { value, onChange, onBlur } }) => (
-                                    <View className="relative">
-                                        <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
-                                            <MaterialIcons
-                                                name="account-balance-wallet"
-                                                size={22}
-                                                color={isDark ? "#6B7280" : "#9CA3AF"}
+                                render={({ field: { value, onChange, onBlur } }) => {
+                                    const [displayValue, setDisplayValue] = useState(
+                                        value !== undefined && value !== null ? value.toString() : ""
+                                    );
+                                    
+                                    // Sync display value when form value changes externally (e.g., from saved data)
+                                    useEffect(() => {
+                                        if (value !== undefined && value !== null) {
+                                            setDisplayValue(value.toString());
+                                        }
+                                    }, [value]);
+
+                                    return (
+                                        <View className="relative">
+                                            <View className="absolute inset-y-0 left-0 pl-4 flex items-center justify-center pointer-events-none z-10">
+                                                <MaterialIcons
+                                                    name="account-balance-wallet"
+                                                    size={22}
+                                                    color={isDark ? "#6B7280" : "#9CA3AF"}
+                                                />
+                                            </View>
+                                            <TextInput
+                                                className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
+                                                    isDark
+                                                        ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                                        : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                                } ${errors.earningsCurrentYear ? "border-red-500" : ""}`}
+                                                style={{
+                                                    shadowColor: isDark ? "#000" : "#000",
+                                                    shadowOffset: { width: 0, height: 2 },
+                                                    shadowOpacity: isDark ? 0.1 : 0.05,
+                                                    shadowRadius: 4,
+                                                    elevation: 2,
+                                                }}
+                                                placeholder="0.00"
+                                                placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
+                                                value={displayValue}
+                                                onChangeText={(text) => {
+                                                    // Allow digits, decimal point, and empty string
+                                                    const cleaned = text.replace(/[^0-9.]/g, '');
+                                                    // Only allow one decimal point
+                                                    const parts = cleaned.split('.');
+                                                    const formatted = parts.length > 2 
+                                                        ? parts[0] + '.' + parts.slice(1).join('')
+                                                        : cleaned;
+                                                    setDisplayValue(formatted);
+                                                    // Convert to number for form validation
+                                                    const num = formatted === '' || formatted === '.' ? 0 : parseFloat(formatted);
+                                                    onChange(isNaN(num) ? 0 : num);
+                                                }}
+                                                onBlur={() => {
+                                                    onBlur();
+                                                    // Ensure display value matches the numeric value
+                                                    const num = parseFloat(displayValue);
+                                                    if (!isNaN(num)) {
+                                                        setDisplayValue(num.toString());
+                                                    } else {
+                                                        setDisplayValue("");
+                                                    }
+                                                }}
+                                                keyboardType="decimal-pad"
+                                                autoCorrect={false}
                                             />
                                         </View>
-                                        <TextInput
-                                            className={`w-full pl-12 pr-4 py-4 rounded-2xl ${
-                                                isDark
-                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                            } ${errors.earningsCurrentYear ? "border-red-500" : ""}`}
-                                            style={{
-                                                shadowColor: isDark ? "#000" : "#000",
-                                                shadowOffset: { width: 0, height: 2 },
-                                                shadowOpacity: isDark ? 0.1 : 0.05,
-                                                shadowRadius: 4,
-                                                elevation: 2,
-                                            }}
-                                            placeholder="0.00"
-                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                            value={value?.toString() || ""}
-                                            onChangeText={(text) => {
-                                                const num = parseFloat(text) || 0;
-                                                onChange(num);
-                                            }}
-                                            onBlur={onBlur}
-                                            keyboardType="decimal-pad"
-                                            autoCorrect={false}
-                                        />
-                                    </View>
-                                )}
+                                    );
+                                }}
                             />
                             {errors.earningsCurrentYear && (
                                 <Text className="text-red-500 text-sm mt-1.5">
@@ -986,7 +1258,10 @@ export default function ProfessionalDetails() {
             <View className={`px-6 pb-8 pt-4 border-t ${isDark ? "border-slate-700/50" : "border-gray-200"}`}>
                 <Pressable
                     onPress={onFormSubmit}
-                    className="w-full py-4 rounded-2xl flex-row items-center justify-center bg-primary active:opacity-90"
+                    disabled={isLoading}
+                    className={`w-full py-4 rounded-2xl flex-row items-center justify-center active:opacity-90 ${
+                        isLoading ? "bg-primary/50" : "bg-primary"
+                    }`}
                     style={{
                         shadowColor: "#1E5AF3",
                         shadowOffset: { width: 0, height: 8 },
@@ -995,8 +1270,14 @@ export default function ProfessionalDetails() {
                         elevation: 8,
                     }}
                 >
+                    {isLoading ? (
+                        <Text className="text-white font-semibold text-base">Saving...</Text>
+                    ) : (
+                        <>
                     <Text className="text-white font-semibold text-base">Complete Setup</Text>
                     <MaterialIcons name="arrow-forward" size={20} color="white" style={{ marginLeft: 8 }} />
+                        </>
+                    )}
                 </Pressable>
             </View>
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -6,23 +6,29 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Resolver, SubmitHandler } from "react-hook-form";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     onboardingPersonalDetailsSchema,
     type OnboardingPersonalDetailsInput,
 } from "@/validation/schema";
 import { useThemeStore } from "@/features/theme/theme.store";
+import { apiService, API_ENDPOINTS } from "@/services/api";
+import { showToast } from "@/utils/toast";
 import "../global.css";
 
 export default function PersonalDetails() {
     const router = useRouter();
     const params = useLocalSearchParams();
     const role = params.role as string;
+    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(true);
 
     const { isDark } = useThemeStore();
 
     const {
         control,
         handleSubmit,
+        reset,
         formState: { errors },
     } = useForm<OnboardingPersonalDetailsInput>({
         resolver: zodResolver(onboardingPersonalDetailsSchema) as Resolver<OnboardingPersonalDetailsInput>,
@@ -33,12 +39,78 @@ export default function PersonalDetails() {
         },
     });
 
-    const onSubmit: SubmitHandler<OnboardingPersonalDetailsInput> = (data) => {
-        console.log("Onboarding personal details submitted:", data);
+    // Load saved data on mount
+    useEffect(() => {
+        const loadSavedData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('authToken');
+                if (!token) {
+                    setIsLoadingData(false);
+                    return;
+                }
+
+                const response = await apiService.get<{
+                    success: boolean;
+                    data: {
+                        step2: { name: string; email: string; phone: string };
+                    };
+                }>(API_ENDPOINTS.USERS.ONBOARDING.DATA, token);
+
+                if (response?.data?.step2) {
+                    reset({
+                        name: response.data.step2.name || "",
+                        email: response.data.step2.email || "",
+                        phone: response.data.step2.phone || "",
+                    });
+                }
+            } catch (error) {
+                // Silently fail - user might not have saved data yet
+                console.log('No saved personal details found');
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadSavedData();
+    }, [reset]);
+
+    const onSubmit: SubmitHandler<OnboardingPersonalDetailsInput> = async (data) => {
+        try {
+            setIsLoading(true);
+
+            // Get auth token
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) {
+                showToast.error("Please log in again", "Error");
+                router.replace("/(auth)/login");
+                return;
+            }
+
+            // Call API to save personal details
+            await apiService.post(
+                API_ENDPOINTS.USERS.ONBOARDING.STEP_2,
+                {
+                    name: data.name,
+                    email: data.email,
+                    phone_number: data.phone, // Map phone to phone_number
+                },
+                token
+            );
+
+            // Navigate to next step
         router.push({
             pathname: "/(onboarding)/professional-details",
             params: { role, ...data },
         });
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error 
+                ? error.message 
+                : "Failed to save personal details. Please try again.";
+            
+            showToast.error(errorMessage, "Error");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const onFormSubmit = handleSubmit(onSubmit);
@@ -242,7 +314,10 @@ export default function PersonalDetails() {
             <View className={`px-6 pb-8 pt-4 border-t ${isDark ? "border-slate-700/50" : "border-gray-200"}`}>
                 <Pressable
                     onPress={onFormSubmit}
-                    className="w-full py-4 rounded-2xl flex-row items-center justify-center bg-primary active:opacity-90"
+                    disabled={isLoading}
+                    className={`w-full py-4 rounded-2xl flex-row items-center justify-center active:opacity-90 ${
+                        isLoading ? "bg-primary/50" : "bg-primary"
+                    }`}
                     style={{
                         shadowColor: "#1E5AF3",
                         shadowOffset: { width: 0, height: 8 },
@@ -251,8 +326,14 @@ export default function PersonalDetails() {
                         elevation: 8,
                     }}
                 >
+                    {isLoading ? (
+                        <Text className="text-white font-semibold text-base">Saving...</Text>
+                    ) : (
+                        <>
                     <Text className="text-white font-semibold text-base">Continue</Text>
                     <MaterialIcons name="arrow-forward" size={20} color="white" style={{ marginLeft: 8 }} />
+                        </>
+                    )}
                 </Pressable>
             </View>
         </SafeAreaView>

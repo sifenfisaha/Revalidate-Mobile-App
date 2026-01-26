@@ -1,8 +1,11 @@
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { useState } from 'react';
+import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '@/features/theme/theme.store';
+import { showToast } from '@/utils/toast';
 import '../../global.css';
 
 interface MenuItem {
@@ -19,6 +22,30 @@ interface MenuItem {
 export default function ProfileScreen() {
   const router = useRouter();
   const { isDark } = useThemeStore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  };
+
+  const handleLogout = async () => {
+    try {
+      // Clear auth token from storage
+      await AsyncStorage.removeItem('authToken');
+      // Show success message
+      showToast.success('Logged out successfully', 'Success');
+      // Redirect to login page
+      router.replace('/(auth)/login');
+    } catch (error) {
+      // Even if clearing storage fails, still redirect to login
+      console.error('Error during logout:', error);
+      showToast.error('Error during logout', 'Error');
+      router.replace('/(auth)/login');
+    }
+  };
 
   const handleMenuPress = (itemId: string) => {
     switch (itemId) {
@@ -35,8 +62,8 @@ export default function ProfileScreen() {
         router.push('/(tabs)/profile/settings');
         break;
       case '5':
-        // Logout - redirect to login
-        router.replace('/(auth)/login');
+        // Logout - clear token and redirect to login
+        handleLogout();
         break;
       default:
         break;
@@ -94,6 +121,14 @@ export default function ProfileScreen() {
         className="flex-1" 
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#D4AF37' : '#2B5F9E'}
+            colors={['#D4AF37', '#2B5F9E']}
+          />
+        }
       >
         {/* Header */}
         <View className="flex-row items-center justify-between mb-8 px-6 pt-4">

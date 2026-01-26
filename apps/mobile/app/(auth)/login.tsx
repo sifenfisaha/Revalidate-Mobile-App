@@ -75,7 +75,6 @@ export default function Login() {
 
         checkAuth();
     }, [router]);
-
     const {
         control,
         handleSubmit,

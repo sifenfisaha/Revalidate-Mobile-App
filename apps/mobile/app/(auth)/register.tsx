@@ -74,7 +74,6 @@ export default function Register() {
 
         checkAuth();
     }, [router]);
-
     const {
         control,
         handleSubmit,

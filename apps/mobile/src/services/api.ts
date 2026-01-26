@@ -61,12 +61,32 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      const errorMessage = await this.parseErrorResponse(response);
       throw new Error(errorMessage);
     }
 
     return response.json();
+  }
+
+  /**
+   * Parse error responses safely, supporting JSON and plain text.
+   */
+  private async parseErrorResponse(response: Response): Promise<string> {
+    try {
+      const json = await response.json();
+      if (json && (json.error || json.message || json.errors)) {
+        return json.error || json.message || JSON.stringify(json.errors);
+      }
+      // Unexpected JSON shape
+      return JSON.stringify(json);
+    } catch (e) {
+      try {
+        const text = await response.text();
+        return text || `API Error: ${response.status} ${response.statusText}`;
+      } catch {
+        return `API Error: ${response.status} ${response.statusText}`;
+      }
+    }
   }
 
   /**
@@ -138,8 +158,7 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      const errorMessage = await this.parseErrorResponse(response);
       throw new Error(errorMessage);
     }
 
@@ -166,8 +185,7 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      const errorMessage = await this.parseErrorResponse(response);
       throw new Error(errorMessage);
     }
 
@@ -194,8 +212,7 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      const errorMessage = await this.parseErrorResponse(response);
       throw new Error(errorMessage);
     }
 
@@ -221,8 +238,7 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      const errorMessage = await this.parseErrorResponse(response);
       throw new Error(errorMessage);
     }
 
@@ -270,9 +286,7 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      // API returns { success: false, error: "message" } or { message: "..." }
-      const errorMessage = error.error || error.message || `API Error: ${response.status} ${response.statusText}`;
+      const errorMessage = await this.parseErrorResponse(response);
       throw new Error(errorMessage);
     }
 

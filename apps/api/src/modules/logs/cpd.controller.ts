@@ -38,7 +38,17 @@ export const create = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(401, 'Authentication required');
   }
 
-  const validated = createCpdHoursSchema.parse(req.body) as CreateCpdHours;
+  // Normalize request body to accept both camelCase and snake_case fields
+  const body = req.body || {};
+  const normalized = {
+    activity_date: body.activity_date || body.activityDate || body.activityDate || body.activity || '',
+    duration_minutes: body.duration_minutes || body.durationMinutes || body.duration || 0,
+    training_name: body.training_name || body.trainingName || body.training || '',
+    activity_type: body.activity_type || body.activityType || 'participatory',
+    document_ids: body.document_ids || body.documentIds || undefined,
+  } as CreateCpdHours;
+
+  const validated = createCpdHoursSchema.parse(normalized) as CreateCpdHours;
   const cpdHours = await createCpdHours(req.user.userId, validated);
 
   res.status(201).json({

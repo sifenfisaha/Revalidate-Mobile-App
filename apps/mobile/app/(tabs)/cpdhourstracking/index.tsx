@@ -1,8 +1,10 @@
-import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, Modal, TextInput, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiService } from '@/services/api';
 import Svg, { Circle } from 'react-native-svg';
 import { useThemeStore } from '@/features/theme/theme.store';
 import '../../global.css';
@@ -26,11 +28,86 @@ export default function CPDHoursTrackingScreen() {
   const [activeFilter, setActiveFilter] = useState<'all' | 'participatory' | 'non-participatory'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  // CPD Data
-  const totalHours = 35;
+  // CPD Data (fetched from API)
+  const [totalHours, setTotalHours] = useState<number>(0);
   const targetHours = 35;
-  const participatoryHours = 20.5;
-  const nonParticipatoryHours = 14.5;
+  const [participatoryHours, setParticipatoryHours] = useState<number>(0);
+  const [nonParticipatoryHours, setNonParticipatoryHours] = useState<number>(0);
+  const [allActivities, setAllActivities] = useState<CPDActivity[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [showAddCpdModal, setShowAddCpdModal] = useState(false);
+  const [cpdForm, setCpdForm] = useState({
+    trainingName: '',
+    activityDate: '', // YYYY-MM-DD
+    durationMinutes: 0,
+    activityType: 'participatory',
+  });
+  const [cpdSubmitting, setCpdSubmitting] = useState(false);
+  const [showCpdDatePicker, setShowCpdDatePicker] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const monthNames = [
+    'January','February','March','April','May','June','July','August','September','October','November','December'
+  ];
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const getDaysInMonth = (month: number, year: number) => new Date(year, month + 1, 0).getDate();
+  const getFirstDayOfMonth = (month: number, year: number) => new Date(year, month, 1).getDay();
+
+  const formatCpdDateDisplay = (iso?: string) => {
+    if (!iso) return 'Select date (YYYY-MM-DD)';
+    return iso;
+  };
+
+  const formatYMD = (year: number, month: number, day: number) => {
+    const m = String(month + 1).padStart(2, '0');
+    const d = String(day).padStart(2, '0');
+    return `${year}-${m}-${d}`;
+  };
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      if (selectedMonth === 0) {
+        setSelectedMonth(11);
+        setSelectedYear(selectedYear - 1);
+      } else {
+        setSelectedMonth(selectedMonth - 1);
+      }
+    } else {
+      if (selectedMonth === 11) {
+        setSelectedMonth(0);
+        setSelectedYear(selectedYear + 1);
+      } else {
+        setSelectedMonth(selectedMonth + 1);
+      }
+    }
+  };
+
+  const handleCpdDateSelect = (day: number) => {
+    const iso = formatYMD(selectedYear, selectedMonth, day);
+    setCpdForm({ ...cpdForm, activityDate: iso });
+    setShowCpdDatePicker(false);
+  };
+
+  const renderCpdCalendar = () => {
+    const daysInMonth = getDaysInMonth(selectedMonth, selectedYear);
+    const firstDay = getFirstDayOfMonth(selectedMonth, selectedYear);
+    const nodes: any[] = [];
+    for (let i = 0; i < firstDay; i++) nodes.push(<View key={`empty-${i}`} className="w-10 h-10" />);
+    for (let day = 1; day <= daysInMonth; day++) {
+      const isSelected = cpdForm.activityDate === formatYMD(selectedYear, selectedMonth, day);
+      nodes.push(
+        <Pressable
+          key={day}
+          onPress={() => handleCpdDateSelect(day)}
+          className={`w-10 h-10 rounded-full flex items-center justify-center ${isSelected ? 'bg-[#2563EB]' : isDark ? 'bg-slate-700/50' : 'bg-transparent'}`}
+        >
+          <Text className={`text-sm font-medium ${isSelected ? 'text-white' : isDark ? 'text-white' : 'text-gray-900'}`}>{day}</Text>
+        </Pressable>
+      );
+    }
+    return nodes;
+  };
   const progress = (totalHours / targetHours) * 100;
 
   // Calculate circle progress
@@ -38,41 +115,7 @@ export default function CPDHoursTrackingScreen() {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progress / 100) * circumference;
 
-  // Activities data
-  const allActivities: CPDActivity[] = [
-    {
-      id: '1',
-      title: 'Advanced Clinical Assessment',
-      date: 'Oct 24, 2023',
-      hours: 7.5,
-      type: 'participatory',
-      icon: 'school',
-      iconBgColor: 'bg-blue-100',
-      iconColor: '#2563EB',
-      hasCertificate: true,
-    },
-    {
-      id: '2',
-      title: 'BMJ Journal Reflection',
-      date: 'Oct 12, 2023',
-      hours: 2,
-      type: 'non-participatory',
-      icon: 'menu-book',
-      iconBgColor: 'bg-amber-100',
-      iconColor: '#F59E0B',
-    },
-    {
-      id: '3',
-      title: 'Regional Multidisciplinary Meeting',
-      date: 'Sep 28, 2023',
-      hours: 4.5,
-      type: 'participatory',
-      icon: 'groups',
-      iconBgColor: 'bg-purple-100',
-      iconColor: '#9333EA',
-      hasCertificate: true,
-    },
-  ];
+  // initial activities are empty; will be loaded from API
 
   // Filter activities based on active filter
   const getFilteredActivities = () => {
@@ -83,6 +126,49 @@ export default function CPDHoursTrackingScreen() {
   };
 
   const filteredActivities = getFilteredActivities();
+
+  useEffect(() => {
+    loadCpdActivities();
+  }, []);
+
+  const loadCpdActivities = async () => {
+    setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      // Fetch user's CPD entries
+      const resp = await apiService.get<{ success?: boolean; data: Array<any> }>(`/api/v1/cpd-hours?limit=100`, token);
+      const items = Array.isArray(resp?.data) ? resp.data : [];
+
+      const mapped: CPDActivity[] = items.map((it: any) => ({
+        id: String(it.id),
+        title: it.trainingName || it.training_name || it.training || 'CPD Activity',
+        date: it.activityDate || it.activity_date || it.createdAt || it.created_at || '',
+        hours: (it.durationMinutes || it.duration_minutes || 0) / 60,
+        type: (it.activityType || it.activity_type) as 'participatory' | 'non-participatory',
+        icon: (it.activityType || it.activity_type) === 'participatory' ? 'school' : 'menu-book',
+        iconBgColor: (it.activityType || it.activity_type) === 'participatory' ? 'bg-blue-100' : 'bg-amber-100',
+        iconColor: (it.activityType || it.activity_type) === 'participatory' ? '#2563EB' : '#F59E0B',
+        hasCertificate: (it.documentIds && it.documentIds.length > 0) || (it.document_ids && it.document_ids.length > 0),
+      }));
+
+      setAllActivities(mapped);
+
+      // calculate totals
+      const total = mapped.reduce((s, a) => s + a.hours, 0);
+      const part = mapped.filter(a => a.type === 'participatory').reduce((s, a) => s + a.hours, 0);
+      const nonPart = mapped.filter(a => a.type === 'non-participatory').reduce((s, a) => s + a.hours, 0);
+
+      setTotalHours(Math.round(total * 10) / 10);
+      setParticipatoryHours(Math.round(part * 10) / 10);
+      setNonParticipatoryHours(Math.round(nonPart * 10) / 10);
+    } catch (error) {
+      console.warn('Error loading CPD activities:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
@@ -360,16 +446,178 @@ export default function CPDHoursTrackingScreen() {
         style={{ bottom: 80 + insets.bottom }}
       >
         <Pressable
-          onPress={() => {
-            // Add new CPD activity
-            // This could open a modal or navigate to an add activity screen
-            console.log('Addi new CPD activity');
-          }}
+          onPress={() => setShowAddCpdModal(true)}
           className="w-14 h-14 bg-[#2563EB] rounded-full shadow-lg items-center justify-center active:opacity-80"
         >
           <MaterialIcons name="add" size={32} color="#FFFFFF" />
         </Pressable>
       </View>
+
+      {/* Add CPD Modal */}
+      <Modal
+        visible={showAddCpdModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddCpdModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className={`rounded-t-3xl max-h-[90%] ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
+            <SafeAreaView edges={['bottom']}>
+              <View className={`flex-row items-center justify-between px-6 pt-4 pb-4 border-b ${isDark ? 'border-slate-700' : 'border-slate-100'}`}>
+                <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Add CPD Activity</Text>
+                <Pressable onPress={() => setShowAddCpdModal(false)}>
+                  <MaterialIcons name="close" size={24} color={isDark ? '#9CA3AF' : '#64748B'} />
+                </Pressable>
+              </View>
+
+              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                <View className="px-6 pt-6" style={{ gap: 12 }}>
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Title</Text>
+                    <TextInput
+                      value={cpdForm.trainingName}
+                      onChangeText={(t) => setCpdForm({ ...cpdForm, trainingName: t })}
+                      placeholder="e.g. Advanced Clinical Assessment"
+                      placeholderTextColor={isDark ? '#6B7280' : '#94A3B8'}
+                      className={`border rounded-2xl px-4 py-3 text-base ${isDark ? 'bg-slate-700 text-white border-slate-600' : 'bg-white text-slate-800 border-slate-200'}`}
+                    />
+                  </View>
+
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Date</Text>
+                    <Pressable
+                      onPress={() => {
+                        // open calendar modal and set to current or selected month
+                        if (cpdForm.activityDate) {
+                          const parts = cpdForm.activityDate.split('-').map(Number);
+                          if (parts.length === 3) {
+                            setSelectedYear(parts[0]);
+                            setSelectedMonth(parts[1] - 1);
+                          }
+                        } else {
+                          const now = new Date();
+                          setSelectedYear(now.getFullYear());
+                          setSelectedMonth(now.getMonth());
+                        }
+                        setShowCpdDatePicker(true);
+                      }}
+                      className={`border rounded-2xl px-4 py-3 ${isDark ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}
+                    >
+                      <Text className={`${isDark ? 'text-white' : 'text-slate-800'}`}>{formatCpdDateDisplay(cpdForm.activityDate)}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Duration (minutes)</Text>
+                    <TextInput
+                      value={cpdForm.durationMinutes ? String(cpdForm.durationMinutes) : ''}
+                      onChangeText={(t) => setCpdForm({ ...cpdForm, durationMinutes: parseInt(t || '0', 10) || 0 })}
+                      placeholder="e.g. 90"
+                      keyboardType={Platform.OS === 'web' ? 'numeric' : 'number-pad'}
+                      placeholderTextColor={isDark ? '#6B7280' : '#94A3B8'}
+                      className={`border rounded-2xl px-4 py-3 text-base ${isDark ? 'bg-slate-700 text-white border-slate-600' : 'bg-white text-slate-800 border-slate-200'}`}
+                    />
+                  </View>
+
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Type</Text>
+                    <View className="flex-row" style={{ gap: 8 }}>
+                      <Pressable onPress={() => setCpdForm({ ...cpdForm, activityType: 'participatory' })} className={`px-4 py-2 rounded-2xl ${cpdForm.activityType === 'participatory' ? (isDark ? 'bg-slate-700' : 'bg-white') : ''}`}>
+                        <Text className={cpdForm.activityType === 'participatory' ? 'font-semibold' : ''}>Participatory</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setCpdForm({ ...cpdForm, activityType: 'non-participatory' })} className={`px-4 py-2 rounded-2xl ${cpdForm.activityType === 'non-participatory' ? (isDark ? 'bg-slate-700' : 'bg-white') : ''}`}>
+                        <Text className={cpdForm.activityType === 'non-participatory' ? 'font-semibold' : ''}>Non-Part.</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View className="pt-4">
+                    <Pressable
+                      onPress={async () => {
+                        // simple validation
+                        if (!cpdForm.trainingName.trim() || !cpdForm.activityDate || cpdForm.durationMinutes <= 0) {
+                          console.warn('Please fill all fields');
+                          return;
+                        }
+                        setCpdSubmitting(true);
+                        try {
+                          const token = await AsyncStorage.getItem('authToken');
+                          if (!token) throw new Error('Not authenticated');
+
+                          await apiService.post('/api/v1/cpd-hours', {
+                            training_name: cpdForm.trainingName,
+                            activity_date: cpdForm.activityDate,
+                            duration_minutes: cpdForm.durationMinutes,
+                            activity_type: cpdForm.activityType,
+                          }, token);
+
+                          // reload
+                          await loadCpdActivities();
+                          setShowAddCpdModal(false);
+                          setCpdForm({ trainingName: '', activityDate: '', durationMinutes: 0, activityType: 'participatory' });
+                        } catch (err) {
+                          console.error('Error creating CPD entry:', err);
+                        } finally {
+                          setCpdSubmitting(false);
+                        }
+                      }}
+                      className={`px-6 py-3 rounded-2xl items-center justify-center ${isDark ? 'bg-slate-700' : 'bg-[#2563EB]'}`}
+                      disabled={cpdSubmitting}
+                    >
+                      {cpdSubmitting ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text className="text-white font-bold">Add Activity</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </View>
+      </Modal>
+
+        {/* CPD Date Picker Modal */}
+        <Modal
+          visible={showCpdDatePicker}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowCpdDatePicker(false)}
+        >
+          <Pressable className="flex-1 bg-black/50 justify-end" onPress={() => setShowCpdDatePicker(false)}>
+            <Pressable onPress={(e) => e.stopPropagation()} className={`${isDark ? 'bg-slate-800' : 'bg-white'} rounded-t-3xl p-6`}>
+              <View className="flex-row items-center justify-between mb-4">
+                <Pressable onPress={() => navigateMonth('prev')} className="p-2 rounded-full">
+                  <MaterialIcons name="chevron-left" size={24} color={isDark ? '#D1D5DB' : '#4B5563'} />
+                </Pressable>
+                <View className="flex-row items-center gap-2">
+                  <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{monthNames[selectedMonth]}</Text>
+                  <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedYear}</Text>
+                </View>
+                <Pressable onPress={() => navigateMonth('next')} className="p-2 rounded-full">
+                  <MaterialIcons name="chevron-right" size={24} color={isDark ? '#D1D5DB' : '#4B5563'} />
+                </Pressable>
+              </View>
+
+              <View className="flex-row justify-between mb-3">
+                {dayNames.map((day) => (
+                  <View key={day} className="w-10 items-center">
+                    <Text className={`text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{day}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View className="flex-row flex-wrap justify-between mb-6">{renderCpdCalendar()}</View>
+
+              <View className="flex-row gap-3">
+                <Pressable onPress={() => setShowCpdDatePicker(false)} className={`flex-1 py-3 rounded-xl ${isDark ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                  <Text className={`text-center font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Cancel</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
     </SafeAreaView>
   );
 }

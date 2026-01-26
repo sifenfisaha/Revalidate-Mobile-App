@@ -10,6 +10,7 @@ import adminRoutes from './admin.routes';
 import paymentRoutes from './payment.routes';
 import documentsRoutes from './documents.routes';
 import calendarRoutes from './calendar.routes';
+import notificationsRoutes from './notifications.routes';
 // TODO: Add more routes as modules are implemented
 // import analyticsRoutes from './analytics.routes';
 // import subscriptionRoutes from './subscription.routes';
@@ -33,6 +34,7 @@ router.use(`${API_VERSION}/admin`, adminRoutes);
 router.use(`${API_VERSION}/payment`, paymentRoutes);
 router.use(`${API_VERSION}/documents`, documentsRoutes);
 router.use(`${API_VERSION}/calendar`, calendarRoutes);
+router.use(`${API_VERSION}/notifications`, notificationsRoutes);
 // TODO: Mount additional routes as they're implemented
 // router.use(`${API_VERSION}/analytics`, analyticsRoutes);
 // router.use(`${API_VERSION}/subscription`, subscriptionRoutes);
@@ -54,6 +56,7 @@ router.get(`${API_VERSION}`, (req, res) => {
       appraisals: `${API_VERSION}/appraisals`,
       documents: `${API_VERSION}/documents`,
       calendar: `${API_VERSION}/calendar`,
+      notifications: `${API_VERSION}/notifications`,
       // Additional endpoints will be listed as they're added
     },
   });

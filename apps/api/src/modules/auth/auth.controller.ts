@@ -287,29 +287,53 @@ export const getCurrentUser = asyncHandler(async (req: Request, res: Response) =
 export const requestPasswordReset = asyncHandler(async (req: Request, res: Response) => {
   // Validate email format using Zod schema
   const validated = passwordResetRequestSchema.parse(req.body);
-  const email = validated.email.toLowerCase().trim();
+  const emailInput = validated.email.trim();
 
   // Check if user exists and is registered
-  const user = await prisma.users.findFirst({
-    where: { email },
+  // Use case-insensitive search since MySQL email lookups can be case-sensitive
+  // Try exact match first (faster)
+  let user = await prisma.users.findFirst({
+    where: { email: emailInput },
     select: { id: true, email: true, status: true },
   });
+
+  // If not found with exact match, try case-insensitive using raw SQL
+  if (!user) {
+    const emailLower = emailInput.toLowerCase();
+    const result = await prisma.$queryRaw<Array<{ id: bigint; email: string; status: string }>>`
+      SELECT id, email, status 
+      FROM users 
+      WHERE LOWER(TRIM(email)) = LOWER(TRIM(${emailLower}))
+      LIMIT 1
+    `;
+    if (result && result.length > 0) {
+      user = {
+        id: result[0].id,
+        email: result[0].email,
+        status: result[0].status as any,
+      };
+    }
+  }
+
 
   if (!user) {
     throw new ApiError(404, 'Account does not exist with this email address.');
   }
 
   // Check if user account is active
-  if (user.status === 'zero') {
+  // Prisma enum: 'zero' maps to "0", 'one' maps to "1"
+  // Also handle string values for compatibility
+  const status = String(user.status);
+  if (status === 'zero' || status === '0') {
     throw new ApiError(403, 'Account is not verified. Please verify your email first.');
   }
 
   // Generate and store OTP for password reset
   const otp = generateOTP();
-  await storeOTP(email, otp);
+  await storeOTP(emailInput, otp);
 
   // Send OTP email
-  const emailResult = await sendOTPEmail(email, otp);
+  const emailResult = await sendOTPEmail(emailInput, otp);
 
   const response: any = {
     success: true,

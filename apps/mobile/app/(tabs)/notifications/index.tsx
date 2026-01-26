@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -21,6 +21,7 @@ interface Notification {
 export default function NotificationsScreen() {
   const router = useRouter();
   const { isDark } = useThemeStore();
+  const [refreshing, setRefreshing] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([
     {
       id: '1',
@@ -202,6 +203,17 @@ export default function NotificationsScreen() {
       <ScrollView 
         className="flex-1"
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              setTimeout(() => setRefreshing(false), 1000);
+            }}
+            tintColor={isDark ? '#D4AF37' : '#2B5F9E'}
+            colors={['#D4AF37', '#2B5F9E']}
+          />
+        }
       >
         {renderSection('TODAY', todayNotifications)}
         {renderSection('YESTERDAY', yesterdayNotifications)}

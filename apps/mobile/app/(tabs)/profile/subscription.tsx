@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -37,6 +37,7 @@ export default function SubscriptionScreen() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const stripe = useStripe();
   const initPaymentSheet = stripe?.initPaymentSheet || (async () => ({ error: { message: "Stripe not available" } }));
@@ -225,6 +226,17 @@ export default function SubscriptionScreen() {
     }
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadSubscriptionStatus();
+    } catch (error) {
+      console.error('Error refreshing subscription:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
@@ -241,6 +253,14 @@ export default function SubscriptionScreen() {
         className="flex-1" 
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isPremium ? '#D4AF37' : '#2B5F9E'}
+            colors={[isPremium ? '#D4AF37' : '#2B5F9E']}
+          />
+        }
       >
         {/* Header */}
         <View className="flex-row items-center justify-between mb-8 px-6 pt-4">

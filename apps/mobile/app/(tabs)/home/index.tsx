@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, Alert, Animated } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert, Animated, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -42,6 +42,7 @@ export default function DashboardScreen() {
   const [isPaused, setIsPaused] = useState(false);
   const [pausedAt, setPausedAt] = useState<Date | null>(null);
   const [totalPausedTime, setTotalPausedTime] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -378,6 +379,20 @@ export default function DashboardScreen() {
 
   const formatTime = (value: number) => value.toString().padStart(2, '0');
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadUserData(),
+        loadActiveSession(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const PulsingDot = ({ isDark }: { isDark: boolean }) => {
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -473,6 +488,14 @@ export default function DashboardScreen() {
         className="flex-1" 
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isPremium ? '#D4AF37' : '#2B5F9E'}
+            colors={[isPremium ? '#D4AF37' : '#2B5F9E']}
+          />
+        }
       >
         <View 
           className="px-6 pt-6 pb-20 rounded-b-[40px]" 

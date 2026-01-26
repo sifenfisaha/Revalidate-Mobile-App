@@ -60,14 +60,16 @@ export default function Login() {
 
             <ScrollView
                 className="flex-1"
-                contentContainerStyle={{ paddingBottom: 16, flexGrow: 1, justifyContent: 'space-between' }}
+                contentContainerStyle={{ 
+                    flexGrow: 1, 
+                    justifyContent: 'center',
+                    paddingVertical: 20
+                }}
                 showsVerticalScrollIndicator={false}
             >
-                <View className="h-16" />
-
-                <View className="flex-1 px-5 pb-4 w-full justify-between">
+                <View className="px-5 w-full">
                     {/* Header */}
-                    <View className="mt-6 mb-8">
+                    <View className="mb-8">
                         <View className="mb-3">
                             <Text
                                 className={`text-4xl font-bold mb-2 ${isDark ? "text-white" : "text-gray-900"}`}

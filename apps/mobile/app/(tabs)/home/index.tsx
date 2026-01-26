@@ -44,10 +44,20 @@ export default function DashboardScreen() {
   const [totalPausedTime, setTotalPausedTime] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [stats, setStats] = useState({
+    totalHours: 0,
+    totalEarnings: 0,
+    cpdHours: 0,
+    reflectionsCount: 0,
+  });
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
 
   useEffect(() => {
     loadUserData();
     loadActiveSession();
+    loadDashboardStats();
+    loadNotificationsCount();
   }, []);
 
   useFocusEffect(
@@ -57,12 +67,21 @@ export default function DashboardScreen() {
   );
 
   useEffect(() => {
-    if (activeSession && activeSession.isActive && !isPaused) {
+    if (activeSession && activeSession.isActive) {
+      // Always update timer immediately
       updateTimerFromSession();
       
-      timerIntervalRef.current = setInterval(() => {
-        updateTimerFromSession();
-      }, 1000);
+      // Only run interval if not paused (to save resources)
+      if (!isPaused) {
+        timerIntervalRef.current = setInterval(() => {
+          updateTimerFromSession();
+        }, 1000);
+      } else {
+        // When paused, update once per second to show paused time
+        timerIntervalRef.current = setInterval(() => {
+          updateTimerFromSession();
+        }, 1000);
+      }
     } else {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
@@ -73,6 +92,8 @@ export default function DashboardScreen() {
         setIsPaused(false);
         setPausedAt(null);
         setTotalPausedTime(0);
+        // Clear stored pause state when session ends
+        AsyncStorage.removeItem('workSessionPauseState').catch(console.error);
       }
     }
 
@@ -81,14 +102,28 @@ export default function DashboardScreen() {
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, [activeSession, isPaused]);
+  }, [activeSession, isPaused, totalPausedTime, pausedAt]);
+
+  // Save pause state whenever it changes
+  useEffect(() => {
+    if (activeSession) {
+      savePauseState();
+    }
+  }, [isPaused, pausedAt, totalPausedTime, activeSession?.id]);
 
   const updateTimerFromSession = () => {
-    if (!activeSession || !activeSession.isActive || isPaused) return;
+    if (!activeSession || !activeSession.isActive) return;
 
     const startTime = new Date(activeSession.startTime);
     const now = new Date();
-    const diffMs = now.getTime() - startTime.getTime() - totalPausedTime;
+    
+    // Calculate paused time: if currently paused, add time since pause started
+    let currentPausedTime = totalPausedTime;
+    if (isPaused && pausedAt) {
+      currentPausedTime += now.getTime() - pausedAt.getTime();
+    }
+    
+    const diffMs = now.getTime() - startTime.getTime() - currentPausedTime;
     
     const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
     const hours = Math.floor(totalSeconds / 3600);
@@ -110,18 +145,70 @@ export default function DashboardScreen() {
 
       if (response?.data && response.data.isActive) {
         setActiveSession(response.data);
-        setIsPaused(false);
-        setPausedAt(null);
-        setTotalPausedTime(0);
+        
+        // Load persisted pause state from AsyncStorage
+        try {
+          const storedPauseState = await AsyncStorage.getItem('workSessionPauseState');
+          if (storedPauseState) {
+            const pauseState = JSON.parse(storedPauseState);
+            // Only restore if it's for the same session
+            if (pauseState.sessionId === response.data.id) {
+              setIsPaused(pauseState.isPaused);
+              setTotalPausedTime(pauseState.totalPausedTime || 0);
+              if (pauseState.isPaused && pauseState.pausedAt) {
+                setPausedAt(new Date(pauseState.pausedAt));
+              } else {
+                setPausedAt(null);
+              }
+            } else {
+              // Different session, reset pause state
+              setIsPaused(false);
+              setPausedAt(null);
+              setTotalPausedTime(0);
+              await AsyncStorage.removeItem('workSessionPauseState');
+            }
+          } else {
+            setIsPaused(false);
+            setPausedAt(null);
+            setTotalPausedTime(0);
+          }
+        } catch (error) {
+          console.warn('Error loading pause state:', error);
+          setIsPaused(false);
+          setPausedAt(null);
+          setTotalPausedTime(0);
+        }
       } else {
         setActiveSession(null);
         setIsPaused(false);
         setPausedAt(null);
         setTotalPausedTime(0);
+        // Clear stored pause state if no active session
+        await AsyncStorage.removeItem('workSessionPauseState');
       }
     } catch (error) {
       console.error('Error loading active session:', error);
       setActiveSession(null);
+      setIsPaused(false);
+      setPausedAt(null);
+      setTotalPausedTime(0);
+    }
+  };
+
+  const savePauseState = async () => {
+    if (!activeSession) return;
+    
+    try {
+      const pauseState = {
+        sessionId: activeSession.id,
+        isPaused,
+        pausedAt: pausedAt?.toISOString() || null,
+        totalPausedTime,
+        lastUpdated: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem('workSessionPauseState', JSON.stringify(pauseState));
+    } catch (error) {
+      console.error('Error saving pause state:', error);
     }
   };
 
@@ -153,6 +240,8 @@ export default function DashboardScreen() {
         setIsPaused(false);
         setPausedAt(null);
         setTotalPausedTime(0);
+        // Clear any old pause state when starting new session
+        await AsyncStorage.removeItem('workSessionPauseState');
         showToast.success('Clinical session started', 'Success');
       }
     } catch (error: any) {
@@ -183,22 +272,32 @@ export default function DashboardScreen() {
     }
   };
 
-  const handlePauseSession = () => {
+  const handlePauseSession = async () => {
     if (!activeSession || isPaused) return;
     
+    const now = new Date();
     setIsPaused(true);
-    setPausedAt(new Date());
+    setPausedAt(now);
     showToast.info('Session paused', 'Paused');
+    
+    // Save pause state to AsyncStorage
+    await savePauseState();
   };
 
-  const handleResumeSession = () => {
-    if (!activeSession || !isPaused || !pausedAt) return;
+  const handleResumeSession = async () => {
+    if (!activeSession || !isPaused) return;
     
-    const pauseDuration = new Date().getTime() - pausedAt.getTime();
+    const now = new Date();
+    const pauseStartTime = pausedAt || now;
+    const pauseDuration = now.getTime() - pauseStartTime.getTime();
+    
     setTotalPausedTime(prev => prev + pauseDuration);
     setIsPaused(false);
     setPausedAt(null);
     showToast.info('Session resumed', 'Resumed');
+    
+    // Save resume state to AsyncStorage
+    await savePauseState();
   };
 
   const handleRestartSession = async () => {
@@ -379,12 +478,94 @@ export default function DashboardScreen() {
 
   const formatTime = (value: number) => value.toString().padStart(2, '0');
 
+  const loadDashboardStats = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      // Load work hours stats
+      const workHoursResponse = await apiService.get<{
+        success: boolean;
+        data: { totalHours: number };
+      }>(API_ENDPOINTS.WORK_HOURS.STATS_TOTAL, token);
+
+      const totalHours = workHoursResponse?.data?.totalHours || 0;
+      const hourlyRate = 35; // Default hourly rate - should come from user settings
+      const totalEarnings = totalHours * hourlyRate;
+
+      // Load CPD hours (if endpoint exists)
+      let cpdHours = 0;
+      try {
+        const cpdResponse = await apiService.get<{
+          success: boolean;
+          data: { totalHours: number };
+        }>('/api/v1/cpd-hours/stats/total', token);
+        cpdHours = cpdResponse?.data?.totalHours || 0;
+      } catch (error) {
+        console.warn('CPD hours endpoint not available:', error);
+      }
+
+      // Load reflections count
+      let reflectionsCount = 0;
+      try {
+        const reflectionsResponse = await apiService.get<{
+          success: boolean;
+          data: any[];
+          pagination: { total: number };
+        }>('/api/v1/reflections?limit=1', token);
+        reflectionsCount = reflectionsResponse?.pagination?.total || 0;
+      } catch (error) {
+        console.warn('Reflections endpoint not available:', error);
+      }
+
+      setStats({
+        totalHours: Math.round(totalHours),
+        totalEarnings: Math.round(totalEarnings),
+        cpdHours: Math.round(cpdHours),
+        reflectionsCount,
+      });
+    } catch (error) {
+      console.error('Error loading dashboard stats:', error);
+      // Set default values on error
+      setStats({
+        totalHours: 0,
+        totalEarnings: 0,
+        cpdHours: 0,
+        reflectionsCount: 0,
+      });
+    }
+  };
+
+  const loadNotificationsCount = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await apiService.get<{
+        success: boolean;
+        data: Array<{ status?: string; isRead?: boolean }>;
+      }>('/api/v1/notifications', token);
+
+      if (response?.data) {
+        const unread = response.data.filter(n => 
+          n.status === '0' || n.isRead === false
+        ).length;
+        setUnreadNotifications(unread);
+      }
+    } catch (error) {
+      console.warn('Error loading notifications count:', error);
+      setUnreadNotifications(0);
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     try {
       await Promise.all([
         loadUserData(),
         loadActiveSession(),
+        loadDashboardStats(),
+        loadNotificationsCount(),
       ]);
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -428,59 +609,58 @@ export default function DashboardScreen() {
     );
   };
 
-  const stats = [
-    {
-      icon: 'schedule' as const,
-      value: '450',
-      label: 'Hours Completed',
-      bgColor: 'bg-blue-50',
-      iconColor: '#2B5F9E',
-      route: '/(tabs)/workinghours',
-    },
-    {
-      icon: 'payments' as const,
-      value: '£3,420',
-      label: 'Total Earnings',
-      bgColor: 'bg-green-50',
-      iconColor: '#10B981',
-      route: '/(tabs)/earings',
-    },
-    {
-      icon: 'school' as const,
-      value: '35',
-      label: 'CPD Hours',
-      bgColor: 'bg-purple-50',
-      iconColor: '#9333EA',
-      route: '/(tabs)/cpdhourstracking',
-    },
-    {
-      icon: 'description' as const,
-      value: '5',
-      label: 'Reflections',
-      bgColor: 'bg-amber-50',
-      iconColor: '#F59E0B',
-      route: '/(tabs)/reflections',
-    },
-  ];
+  const getStats = () => {
+    const baseStats = [
+      {
+        icon: 'schedule' as const,
+        value: stats.totalHours.toString(),
+        label: 'Hours Completed',
+        bgColor: 'bg-blue-50',
+        iconColor: '#2B5F9E',
+        route: '/(tabs)/workinghours',
+      },
+      {
+        icon: 'payments' as const,
+        value: `£${stats.totalEarnings.toLocaleString()}`,
+        label: 'Total Earnings',
+        bgColor: 'bg-green-50',
+        iconColor: '#10B981',
+        route: '/(tabs)/earings',
+      },
+      {
+        icon: 'school' as const,
+        value: stats.cpdHours.toString(),
+        label: 'CPD Hours',
+        bgColor: 'bg-purple-50',
+        iconColor: '#9333EA',
+        route: '/(tabs)/cpdhourstracking',
+      },
+      {
+        icon: 'description' as const,
+        value: stats.reflectionsCount.toString(),
+        label: 'Reflections',
+        bgColor: 'bg-amber-50',
+        iconColor: '#F59E0B',
+        route: '/(tabs)/reflections',
+      },
+    ];
 
-  const activities = [
-    {
-      icon: 'edit-note' as const,
-      title: 'New Reflection Added',
-      subtitle: "Case #4829 - Multi-disciplinary team",
-      time: '2h ago',
-      bgColor: 'bg-blue-50',
-      iconColor: '#2B5F9E',
-    },
-    {
-      icon: 'verified' as const,
-      title: 'Shift Approved',
-      subtitle: "Royal Victoria Hospital - 12h Shift",
-      time: 'Yesterday',
-      bgColor: 'bg-green-50',
-      iconColor: '#10B981',
-    },
-  ];
+    if (isPremium) {
+      return baseStats.map(stat => ({
+        ...stat,
+        bgColor: 'bg-[#FFD700]/20',
+        iconColor: '#D4AF37',
+      }));
+    }
+
+    return baseStats;
+  };
+
+  const statsList = getStats();
+
+  // Activities will be loaded from API in the future
+  // For now, show empty state if no activities
+  const activities: any[] = [];
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
@@ -589,9 +769,13 @@ export default function DashboardScreen() {
               <View className="w-10 h-10 rounded-full bg-white/20 items-center justify-center border border-white/30">
                 <MaterialIcons name="notifications-active" size={22} color="#FFFFFF" />
               </View>
-              <View className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full border-2 border-[#2B5F9E] items-center justify-center">
-                <Text className="text-white text-[10px] font-bold" style={{ lineHeight: 12 }}>2</Text>
-              </View>
+              {unreadNotifications > 0 && (
+                <View className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full border-2 border-[#2B5F9E] items-center justify-center">
+                  <Text className="text-white text-[10px] font-bold" style={{ lineHeight: 12 }}>
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           </View>
 
@@ -698,7 +882,7 @@ export default function DashboardScreen() {
                   {isPaused ? (
                     <Pressable
                       onPress={handleResumeSession}
-                      className="bg-[#10B981] px-6 py-3 rounded-2xl flex-row items-center gap-2 shadow-lg"
+                      className="bg-[#10B981] px-6 py-3 rounded-2xl flex-row items-center gap-2 shadow-lg active:opacity-80"
                     >
                       <MaterialIcons name="play-arrow" size={20} color="#FFFFFF" />
                       <Text className="text-white font-bold">Resume</Text>
@@ -706,10 +890,7 @@ export default function DashboardScreen() {
                   ) : (
                     <Pressable
                       onPress={handlePauseSession}
-                      disabled={isPausingSession}
-                      className={`bg-[#F59E0B] px-6 py-3 rounded-2xl flex-row items-center gap-2 shadow-lg ${
-                        isPausingSession ? "opacity-50" : ""
-                      }`}
+                      className="bg-[#F59E0B] px-6 py-3 rounded-2xl flex-row items-center gap-2 shadow-lg active:opacity-80"
                     >
                       <MaterialIcons name="pause" size={20} color="#FFFFFF" />
                       <Text className="text-white font-bold">Pause</Text>
@@ -762,7 +943,7 @@ export default function DashboardScreen() {
           )}
 
           <View className="flex-row flex-wrap" style={{ gap: 16 }}>
-            {stats.map((stat, index) => (
+            {statsList.map((stat, index) => (
               <Pressable
                 key={index}
                 onPress={() => {
@@ -793,44 +974,57 @@ export default function DashboardScreen() {
               <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
                 Recent Activity
               </Text>
-              <Pressable>
-                <Text className="text-[#2B5F9E] text-sm font-semibold">View All</Text>
-              </Pressable>
-            </View>
-            <View style={{ gap: 12 }}>
-              {activities.map((activity, index) => (
-                <Pressable
-                  key={index}
-                  onPress={() => {
-                    if (activity.title === 'New Reflection Added') {
-                      router.push('/(tabs)/reflections');
-                    }
-                  }}
-                  className={`flex-row items-center gap-4 p-4 rounded-2xl border ${
-                    isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-50"
-                  }`}
-                >
-                  <View className={`${activity.bgColor} p-2.5 rounded-xl`}>
-                    <MaterialIcons 
-                      name={activity.icon} 
-                      size={20} 
-                      color={activity.iconColor} 
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <Text className={`font-semibold text-sm ${isDark ? "text-white" : "text-slate-800"}`}>
-                      {activity.title}
-                    </Text>
-                    <Text className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-slate-500"}`}>
-                      {activity.subtitle}
-                    </Text>
-                  </View>
-                  <Text className={`text-xs ${isDark ? "text-gray-500" : "text-slate-400"}`}>
-                    {activity.time}
-                  </Text>
+              {activities.length > 0 && (
+                <Pressable>
+                  <Text className="text-[#2B5F9E] text-sm font-semibold">View All</Text>
                 </Pressable>
-              ))}
+              )}
             </View>
+            {activities.length > 0 ? (
+              <View style={{ gap: 12 }}>
+                {activities.map((activity, index) => (
+                  <Pressable
+                    key={index}
+                    onPress={() => {
+                      if (activity.title === 'New Reflection Added') {
+                        router.push('/(tabs)/reflections');
+                      }
+                    }}
+                    className={`flex-row items-center gap-4 p-4 rounded-2xl border ${
+                      isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-50"
+                    }`}
+                  >
+                    <View className={`${activity.bgColor} p-2.5 rounded-xl`}>
+                      <MaterialIcons 
+                        name={activity.icon} 
+                        size={20} 
+                        color={activity.iconColor} 
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Text className={`font-semibold text-sm ${isDark ? "text-white" : "text-slate-800"}`}>
+                        {activity.title}
+                      </Text>
+                      <Text className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-slate-500"}`}>
+                        {activity.subtitle}
+                      </Text>
+                    </View>
+                    <Text className={`text-xs ${isDark ? "text-gray-500" : "text-slate-400"}`}>
+                      {activity.time}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View className={`p-6 rounded-2xl border items-center ${
+                isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+              }`}>
+                <MaterialIcons name="history" size={32} color={isDark ? "#4B5563" : "#CBD5E1"} />
+                <Text className={`mt-3 text-center ${isDark ? "text-gray-400" : "text-slate-400"}`}>
+                  No recent activity
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </ScrollView>

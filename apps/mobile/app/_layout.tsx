@@ -8,6 +8,12 @@ import Toast from 'react-native-toast-message';
 import { initializeSyncService, cleanupSyncService } from '@/services/sync-service';
 import "./global.css";
 
+// ErrorUtils is available globally in React Native
+declare const ErrorUtils: {
+    getGlobalHandler: () => ((error: Error, isFatal?: boolean) => void) | null;
+    setGlobalHandler: (handler: (error: Error, isFatal?: boolean) => void) => void;
+};
+
 // Safe Stripe import - handles cases where native modules aren't available
 let StripeProvider: any;
 let isStripeAvailable = false;
@@ -204,8 +210,27 @@ function StatusBarWrapper() {
 
 export default function RootLayout() {
     useEffect(() => {
+        // Handle unhandled promise rejections (suppress non-critical keep-awake errors)
+        const originalErrorHandler = ErrorUtils.getGlobalHandler();
+        
+        ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+            const errorMessage = error?.message || error?.toString() || '';
+            if (errorMessage.includes('Unable to activate keep awake')) {
+                // Suppress this non-critical Expo development tool error
+                // This error occurs when Expo tries to keep the screen awake during development
+                // but the native module isn't available or properly configured
+                return;
+            }
+            // Call original error handler for other errors
+            if (originalErrorHandler) {
+                originalErrorHandler(error, isFatal);
+            }
+        });
+
         initializeSyncService();
+        
         return () => {
+            ErrorUtils.setGlobalHandler(originalErrorHandler);
             cleanupSyncService();
         };
     }, []);

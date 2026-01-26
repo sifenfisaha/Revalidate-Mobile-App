@@ -35,9 +35,12 @@ export default function SplashScreen() {
                 if (!token) {
                     // No token, redirect to login
                     setIsCheckingAuth(false);
-                    setTimeout(() => {
-                        router.replace("/(auth)/login");
-                    }, 1500);
+                    // Use requestAnimationFrame to ensure navigation happens after layout is mounted
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            router.replace("/(auth)/login");
+                        }, 1500);
+                    });
                     return;
                 }
 
@@ -57,46 +60,53 @@ export default function SplashScreen() {
 
                     setIsCheckingAuth(false);
                     
-                    if (progress?.data?.completed) {
-                        // User has completed all onboarding steps - navigate to dashboard
-                        setTimeout(() => {
-                            router.replace("/(tabs)/home");
-                        }, 1500);
-                    } else {
-                        // User hasn't completed onboarding - redirect to the appropriate step
-                        const step = progress?.data?.currentStep || 1;
-                        setTimeout(() => {
-                            if (step === 1) {
-                                router.replace("/(onboarding)/role-selection");
-                            } else if (step === 2) {
-                                router.replace("/(onboarding)/personal-details");
-                            } else if (step === 3) {
-                                router.replace("/(onboarding)/professional-details");
-                            } else if (step === 4) {
-                                router.replace("/(onboarding)/plan-choose");
-                            } else {
-                                // Default to role selection
-                                router.replace("/(onboarding)/role-selection");
-                            }
-                        }, 1500);
-                    }
+                    // Use requestAnimationFrame to ensure navigation happens after layout is mounted
+                    requestAnimationFrame(() => {
+                        if (progress?.data?.completed) {
+                            // User has completed all onboarding steps - navigate to dashboard
+                            setTimeout(() => {
+                                router.replace("/(tabs)/home");
+                            }, 1500);
+                        } else {
+                            // User hasn't completed onboarding - redirect to the appropriate step
+                            const step = progress?.data?.currentStep || 1;
+                            setTimeout(() => {
+                                if (step === 1) {
+                                    router.replace("/(onboarding)/role-selection");
+                                } else if (step === 2) {
+                                    router.replace("/(onboarding)/personal-details");
+                                } else if (step === 3) {
+                                    router.replace("/(onboarding)/professional-details");
+                                } else if (step === 4) {
+                                    router.replace("/(onboarding)/plan-choose");
+                                } else {
+                                    // Default to role selection
+                                    router.replace("/(onboarding)/role-selection");
+                                }
+                            }, 1500);
+                        }
+                    });
                 } catch (error) {
                     // Token is invalid or expired, clear it and redirect to login
                     console.warn("Token validation failed:", error);
                     await AsyncStorage.removeItem('authToken');
                     await AsyncStorage.removeItem('userData');
                     setIsCheckingAuth(false);
-                    setTimeout(() => {
-                        router.replace("/(auth)/login");
-                    }, 1500);
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            router.replace("/(auth)/login");
+                        }, 1500);
+                    });
                 }
             } catch (error) {
                 // Error checking auth, redirect to login
                 console.warn("Auth check error:", error);
                 setIsCheckingAuth(false);
-                setTimeout(() => {
-                    router.replace("/(auth)/login");
-                }, 1500);
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        router.replace("/(auth)/login");
+                    }, 1500);
+                });
             }
         };
 

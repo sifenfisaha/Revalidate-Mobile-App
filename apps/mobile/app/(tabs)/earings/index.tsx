@@ -1,10 +1,24 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '@/features/theme/theme.store';
+import { apiService, API_ENDPOINTS } from '@/services/api';
+import { showToast } from '@/utils/toast';
 import '../../global.css';
+
+interface WorkSession {
+  id: number;
+  startTime: string;
+  endTime: string | null;
+  durationMinutes: number | null;
+  workDescription: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface EarningsEntry {
   id: string;
@@ -15,6 +29,7 @@ interface EarningsEntry {
   amount: string;
   status: 'paid' | 'pending';
   icon: keyof typeof MaterialIcons.glyphMap;
+  startTime: string;
 }
 
 interface MonthGroup {
@@ -27,57 +42,153 @@ export default function EarningsScreen() {
   const router = useRouter();
   const { isDark } = useThemeStore();
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [earnings, setEarnings] = useState<EarningsEntry[]>([]);
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [percentageChange, setPercentageChange] = useState(0);
+  const [hourlyRate, setHourlyRate] = useState(35); // Default hourly rate
 
-  const totalEarnings = '£14,250.00';
-  const percentageChange = '12%';
+  // Load work hours and calculate earnings
+  const loadEarnings = async () => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        router.replace('/(auth)/login');
+        return;
+      }
 
-  const earnings: EarningsEntry[] = [
-    {
-      id: '1',
-      date: '22 Sep',
-      location: "St Mary's Hospital",
-      hours: 8.5,
-      rate: 75,
-      amount: '£637.50',
-      status: 'paid',
-      icon: 'healing',
-    },
-    {
-      id: '2',
-      date: '18 Sep',
-      location: 'Night Shift (A&E)',
-      hours: 12.0,
-      rate: 95,
-      amount: '£1,140.00',
-      status: 'pending',
-      icon: 'local-hospital',
-    },
-    {
-      id: '3',
-      date: '12 Sep',
-      location: 'GP Locum',
-      hours: 6.0,
-      rate: 65,
-      amount: '£390.00',
-      status: 'paid',
-      icon: 'local-hospital',
-    },
-    {
-      id: '4',
-      date: '28 Aug',
-      location: 'Health Checkup',
-      hours: 4.5,
-      rate: 70,
-      amount: '£315.00',
-      status: 'paid',
-      icon: 'verified-user',
-    },
-  ];
+      // Get hourly rate from user settings or use default
+      try {
+        const userResponse = await apiService.get<{
+          success: boolean;
+          data: { hourlyRate?: number };
+        }>(API_ENDPOINTS.USERS.ME, token);
+        if (userResponse?.data?.hourlyRate) {
+          setHourlyRate(userResponse.data.hourlyRate);
+        }
+      } catch (error) {
+        console.warn('Could not load hourly rate, using default');
+      }
+
+      // Fetch completed work sessions (not active ones)
+      const response = await apiService.get<{
+        success: boolean;
+        data: WorkSession[];
+        pagination: { total: number };
+      }>(API_ENDPOINTS.WORK_HOURS.LIST, token);
+
+      if (response.success && response.data) {
+        // Filter out active sessions and convert to earnings entries
+        const completedSessions = response.data.filter(session => 
+          !session.isActive && session.endTime && session.durationMinutes
+        );
+
+        const earningsEntries: EarningsEntry[] = completedSessions.map((session) => {
+          const hours = (session.durationMinutes || 0) / 60;
+          const amount = hours * hourlyRate;
+          const startDate = new Date(session.startTime);
+          
+          // Extract location from work description or use default
+          const description = session.workDescription || '';
+          const location = description.split('\n')[0] || 'Work Session';
+          
+          // Determine icon based on description
+          let icon: keyof typeof MaterialIcons.glyphMap = 'schedule';
+          if (location.toLowerCase().includes('hospital') || location.toLowerCase().includes('a&e')) {
+            icon = 'local-hospital';
+          } else if (location.toLowerCase().includes('gp') || location.toLowerCase().includes('locum')) {
+            icon = 'healing';
+          } else if (location.toLowerCase().includes('checkup') || location.toLowerCase().includes('health')) {
+            icon = 'verified-user';
+          }
+
+          // Determine status: if session is older than 7 days, consider it paid
+          const daysSinceEnd = (new Date().getTime() - new Date(session.endTime!).getTime()) / (1000 * 60 * 60 * 24);
+          const status: 'paid' | 'pending' = daysSinceEnd > 7 ? 'paid' : 'pending';
+
+          return {
+            id: String(session.id),
+            date: startDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+            location,
+            hours: Math.round(hours * 10) / 10, // Round to 1 decimal
+            rate: hourlyRate,
+            amount: `£${amount.toFixed(2)}`,
+            status,
+            icon,
+            startTime: session.startTime,
+          };
+        });
+
+        // Sort by date (newest first)
+        earningsEntries.sort((a, b) => 
+          new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+        );
+
+        setEarnings(earningsEntries);
+
+        // Calculate total earnings
+        const total = earningsEntries.reduce((sum, entry) => {
+          const amount = parseFloat(entry.amount.replace('£', '').replace(',', ''));
+          return sum + amount;
+        }, 0);
+        setTotalEarnings(total);
+
+        // Calculate percentage change (compare last month to previous month)
+        const now = new Date();
+        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+        
+        const lastMonthEarnings = earningsEntries
+          .filter(e => {
+            const entryDate = new Date(e.startTime);
+            return entryDate >= lastMonth && entryDate < now;
+          })
+          .reduce((sum, entry) => {
+            const amount = parseFloat(entry.amount.replace('£', '').replace(',', ''));
+            return sum + amount;
+          }, 0);
+
+        const previousMonthEarnings = earningsEntries
+          .filter(e => {
+            const entryDate = new Date(e.startTime);
+            return entryDate >= twoMonthsAgo && entryDate < lastMonth;
+          })
+          .reduce((sum, entry) => {
+            const amount = parseFloat(entry.amount.replace('£', '').replace(',', ''));
+            return sum + amount;
+          }, 0);
+
+        if (previousMonthEarnings > 0) {
+          const change = ((lastMonthEarnings - previousMonthEarnings) / previousMonthEarnings) * 100;
+          setPercentageChange(Math.round(change));
+        } else {
+          setPercentageChange(0);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error loading earnings:', error);
+      showToast.error(error.message || 'Failed to load earnings', 'Error');
+      setEarnings([]);
+      setTotalEarnings(0);
+      setPercentageChange(0);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadEarnings();
+  }, []);
 
   // Group earnings by month
   const groupedEarnings: MonthGroup[] = earnings.reduce((acc: MonthGroup[], entry) => {
-    const month = entry.date.includes('Sep') ? 'September' : 'August';
-    const year = 2023;
+    const entryDate = new Date(entry.startTime);
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                        'July', 'August', 'September', 'October', 'November', 'December'];
+    const month = monthNames[entryDate.getMonth()] || 'Unknown';
+    const year = entryDate.getFullYear();
     
     const existingGroup = acc.find(g => g.month === month && g.year === year);
     if (existingGroup) {
@@ -96,15 +207,51 @@ export default function EarningsScreen() {
     return months.indexOf(b.month) - months.indexOf(a.month);
   });
 
-  // Monthly performance data for bar chart
-  const monthlyData = [
-    { month: 'Apr', height: 45 },
-    { month: 'May', height: 65 },
-    { month: 'Jun', height: 55 },
-    { month: 'Jul', height: 95, isCurrent: true },
-    { month: 'Aug', height: 75 },
-    { month: 'Sep', height: 40 },
-  ];
+  // Calculate monthly performance data for bar chart (last 6 months)
+  const calculateMonthlyData = () => {
+    const now = new Date();
+    const months = [];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // Get last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthIndex = date.getMonth();
+      const monthName = monthNames[monthIndex] || 'Unknown';
+      
+      // Calculate earnings for this month
+      const monthEarnings = earnings
+        .filter(e => {
+          const entryDate = new Date(e.startTime);
+          return entryDate.getMonth() === date.getMonth() && 
+                 entryDate.getFullYear() === date.getFullYear();
+        })
+        .reduce((sum, entry) => {
+          const amount = parseFloat(entry.amount.replace('£', '').replace(',', ''));
+          return sum + amount;
+        }, 0);
+      
+      months.push({
+        month: monthName,
+        earnings: monthEarnings,
+        isCurrent: i === 0,
+      });
+    }
+    
+    // Find max earnings for scaling
+    const maxEarnings = Math.max(...months.map(m => m.earnings), 1);
+    
+    // Calculate heights as percentages
+    return months.map(m => ({
+      month: m.month,
+      height: maxEarnings > 0 ? (m.earnings / maxEarnings) * 100 : 0,
+      isCurrent: m.isCurrent,
+      earnings: m.earnings,
+    }));
+  };
+
+  const monthlyData = calculateMonthlyData();
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
@@ -130,10 +277,7 @@ export default function EarningsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              setTimeout(() => setRefreshing(false), 1000);
-            }}
+            onRefresh={loadEarnings}
             tintColor={isDark ? '#D4AF37' : '#2B5F9E'}
             colors={['#D4AF37', '#2B5F9E']}
           />
@@ -151,17 +295,27 @@ export default function EarningsScreen() {
             </Text>
             <View className="flex-row items-baseline" style={{ gap: 8 }}>
               <Text className="text-[#00C853] tracking-tight text-3xl font-bold">
-                {totalEarnings}
+                £{totalEarnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
-              <View className="flex-row items-center bg-[#00C853]/10 px-2 py-0.5 rounded-full">
-                <MaterialIcons name="trending-up" size={14} color="#00C853" />
-                <Text className="text-[#00C853] text-xs font-bold ml-1">
-                  {percentageChange}
-                </Text>
-              </View>
+              {percentageChange !== 0 && (
+                <View className={`flex-row items-center px-2 py-0.5 rounded-full ${
+                  percentageChange > 0 ? 'bg-[#00C853]/10' : 'bg-red-500/10'
+                }`}>
+                  <MaterialIcons 
+                    name={percentageChange > 0 ? "trending-up" : "trending-down"} 
+                    size={14} 
+                    color={percentageChange > 0 ? "#00C853" : "#EF4444"} 
+                  />
+                  <Text className={`text-xs font-bold ml-1 ${
+                    percentageChange > 0 ? "text-[#00C853]" : "text-red-500"
+                  }`}>
+                    {percentageChange > 0 ? '+' : ''}{percentageChange}%
+                  </Text>
+                </View>
+              )}
             </View>
             <Text className={`text-xs mt-1 ${isDark ? "text-gray-400" : "text-[#687482]"}`}>
-              Updated 2 mins ago
+              {loading ? 'Loading...' : `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
             </Text>
           </View>
         </View>
@@ -225,7 +379,32 @@ export default function EarningsScreen() {
           </Pressable>
         </View>
 
+        {/* Loading State */}
+        {loading && earnings.length === 0 && (
+          <View className="flex-1 items-center justify-center py-20">
+            <ActivityIndicator size="large" color={isDark ? '#D4AF37' : '#2B5F9E'} />
+            <Text className={`mt-4 ${isDark ? "text-gray-400" : "text-slate-500"}`}>
+              Loading earnings...
+            </Text>
+          </View>
+        )}
+
         {/* Earnings List */}
+        {!loading && earnings.length === 0 && (
+          <View className={`p-8 rounded-2xl border items-center mx-4 mt-4 ${
+            isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+          }`}>
+            <MaterialIcons name="payments" size={48} color={isDark ? "#4B5563" : "#CBD5E1"} />
+            <Text className={`mt-4 text-center ${isDark ? "text-gray-400" : "text-slate-400"}`}>
+              No earnings data available
+            </Text>
+            <Text className={`text-sm mt-2 text-center ${isDark ? "text-gray-500" : "text-slate-500"}`}>
+              Complete work sessions to see your earnings here
+            </Text>
+          </View>
+        )}
+
+        {earnings.length > 0 && (
         <View className="px-4" style={{ gap: 24 }}>
           {groupedEarnings.map((group) => (
             <View key={`${group.month}-${group.year}`}>
@@ -243,7 +422,7 @@ export default function EarningsScreen() {
                   <Pressable
                     key={entry.id}
                     onPress={() => {
-                      router.push('/(tabs)/gallery');
+                      router.push(`/(tabs)/workinghours/${entry.id}` as any);
                     }}
                     className={`flex-row gap-4 px-4 py-4 justify-between items-center ${
                       isDark ? "bg-slate-800" : "bg-white"
@@ -280,6 +459,7 @@ export default function EarningsScreen() {
             </View>
           ))}
         </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

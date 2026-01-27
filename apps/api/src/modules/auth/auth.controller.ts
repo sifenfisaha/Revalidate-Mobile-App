@@ -6,8 +6,8 @@ import { JWT_CONFIG } from '../../config/env';
 import { asyncHandler } from '../../common/middleware/async-handler';
 import { ApiError } from '../../common/middleware/error-handler';
 import { logger } from '../../common/logger';
-import { 
-  LoginRequest, 
+import {
+  LoginRequest,
   AuthResponse,
   JwtPayload,
   PasswordResetRequest,
@@ -113,7 +113,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   const passwordHash = await hashPassword(validated.password);
 
   let user;
-  
+
   if (existingUser && existingUser.status === 'zero') {
     // User exists but is unverified - update password and resend OTP
     user = await prisma.users.update({
@@ -240,30 +240,24 @@ export const getCurrentUser = asyncHandler(async (req: Request, res: Response) =
     throw new ApiError(401, 'Authentication required');
   }
 
-  const userData = await prisma.users.findUnique({
-    where: { id: parseInt(req.user.userId) },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      registration: true,
-      due_date: true,
-      reg_type: true,
-      work_settings: true,
-      scope_practice: true,
-      subscription_tier: true,
-      subscription_status: true,
-      trial_ends_at: true,
-      created_at: true,
-      updated_at: true,
-      description: true,
-    },
-  });
+  // Use raw SQL to bypass Prisma enum validation for legacy data
+  const pool = getMySQLPool();
+  const [users] = await pool.execute(
+    `SELECT id, name, email, registration, due_date, reg_type, 
+     work_settings, scope_practice, subscription_tier, 
+     subscription_status, trial_ends_at, created_at, 
+     updated_at, description, image 
+     FROM users 
+     WHERE id = ? 
+     LIMIT 1`,
+    [req.user.userId]
+  ) as any[];
 
-  if (!userData) {
+  if (!users || users.length === 0) {
     throw new ApiError(404, 'User not found');
   }
 
+  const userData = users[0];
   const mappedUser = mapUserRow(userData);
 
   res.json(serializeBigInt({
@@ -277,6 +271,7 @@ export const getCurrentUser = asyncHandler(async (req: Request, res: Response) =
       professionalRole: mappedUser.professional_role,
       workSetting: mappedUser.work_setting,
       scopeOfPractice: mappedUser.scope_of_practice,
+      image: userData.image || null,
       subscriptionTier: mappedUser.subscription_tier,
       subscriptionStatus: mappedUser.subscription_status,
       trialEndsAt: mappedUser.trial_ends_at,

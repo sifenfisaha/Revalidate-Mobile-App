@@ -1,10 +1,11 @@
-import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useThemeStore } from '@/features/theme/theme.store';
 import { useCalendar } from '@/hooks/useCalendar';
+import { CreateCalendarEvent } from '@/features/calendar/calendar.types';
 import '../../global.css';
 
 type EventType = 'all' | 'official' | 'personal';
@@ -12,8 +13,56 @@ type EventType = 'all' | 'official' | 'personal';
 export default function AllEventsScreen() {
   const router = useRouter();
   const { isDark } = useThemeStore();
-  const { events, isLoading, isRefreshing, refresh } = useCalendar();
+  const { events, isLoading, isRefreshing, refresh, createEvent, updateEvent } = useCalendar();
   const [activeFilter, setActiveFilter] = useState<EventType>('all');
+
+  // Modal State
+  const [showAddEventModal, setShowAddEventModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventForm, setEventForm] = useState({
+    title: '',
+    description: '',
+    location: '',
+    date: new Date(),
+    startTime: '',
+    endTime: '',
+    type: 'official' as 'official' | 'personal',
+  });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Helper for date picker
+  const getDaysInMonthForPicker = () => {
+    const today = new Date();
+    const days = [];
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    // Show 3 months of days for simple selection
+    for (let m = -1; m <= 1; m++) {
+      const d = new Date(year, month + m, 1);
+      const lastDay = new Date(year, month + m + 1, 0).getDate();
+      for (let i = 1; i <= lastDay; i++) {
+        days.push({
+          date: new Date(year, month + m, i),
+          isCurrentMonth: true
+        });
+      }
+    }
+    return days;
+  };
+
+  const calendarDays = getDaysInMonthForPicker();
+
+  const isSameDay = (date1: Date, date2: Date) => {
+    return (
+      date1.getDate() === date2.getDate() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getFullYear() === date2.getFullYear()
+    );
+  };
 
   const filteredEvents = events
     .map(event => ({
@@ -32,14 +81,13 @@ export default function AllEventsScreen() {
       if (activeFilter === 'personal') return event.type === 'personal';
       return true;
     })
-    .sort((a, b) => a.date.getTime() - b.date.getTime()); // Sort by date
+    .sort((a, b) => b.date.getTime() - a.date.getTime()); // recent first
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-GB', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
-      year: 'numeric',
     });
   };
 
@@ -47,58 +95,124 @@ export default function AllEventsScreen() {
     await refresh();
   };
 
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    if (!eventForm.title.trim()) errors.title = 'Title is required';
+    if (!eventForm.startTime.trim()) errors.startTime = 'Start time required';
+    if (!eventForm.endTime.trim()) errors.endTime = 'End time required';
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveEvent = async () => {
+    if (validateForm()) {
+      setIsSubmitting(true);
+      try {
+        const dateStr = eventForm.date.toISOString().split('T')[0] as string;
+        const data: CreateCalendarEvent = {
+          type: eventForm.type,
+          title: eventForm.title,
+          description: eventForm.description || undefined,
+          date: dateStr,
+          startTime: eventForm.startTime || '09:00',
+          endTime: eventForm.endTime || '10:00',
+          location: eventForm.location || undefined,
+        };
+
+        if (editingEventId) {
+          await updateEvent(editingEventId, data);
+        } else {
+          await createEvent(data);
+        }
+
+        setShowAddEventModal(false);
+        setEditingEventId(null);
+        setEventForm({
+          title: '',
+          description: '',
+          location: '',
+          date: new Date(),
+          startTime: '',
+          endTime: '',
+          type: 'official',
+        });
+      } catch (error) {
+        console.error('Save event failed:', error);
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+  };
+
+
   const headerBgColor = isDark ? "bg-background-dark" : "bg-background-light";
   const headerTextColor = isDark ? "text-white" : "text-slate-800";
 
   return (
     <SafeAreaView className={`flex-1 ${headerBgColor}`} edges={['top']}>
       {/* Header */}
-      <View className={`flex-row items-center justify-between px-6 py-4 border-b ${
-        isDark ? "border-slate-700" : "border-slate-200"
-      }`}>
+      <View className={`flex-row items-center justify-between px-6 py-4 border-b ${isDark ? "border-slate-700" : "border-slate-200"
+        }`}>
         <View className="flex-row items-center">
           <Pressable
             onPress={() => router.back()}
             className="mr-4"
           >
-            <MaterialIcons 
-              name="arrow-back" 
-              size={24} 
-              color={isDark ? "#FFFFFF" : "#1E293B"} 
+            <MaterialIcons
+              name="arrow-back"
+              size={24}
+              color={isDark ? "#FFFFFF" : "#1E293B"}
             />
           </Pressable>
           <Text className={`text-xl font-bold ${headerTextColor}`}>
             All Events
           </Text>
         </View>
+        <Pressable
+          onPress={() => {
+            setEditingEventId(null);
+            setEventForm({
+              title: '',
+              description: '',
+              location: '',
+              date: new Date(),
+              startTime: '',
+              endTime: '',
+              type: 'official',
+            });
+            setFormErrors({});
+            setShowAddEventModal(true);
+          }}
+          className={`w-10 h-10 rounded-full shadow-sm items-center justify-center border ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+            }`}
+        >
+          <MaterialIcons name="add" size={24} color={isDark ? "#D4AF37" : "#2B5F9E"} />
+        </Pressable>
       </View>
 
       {/* Filter Tabs */}
-      <View className={`flex-row px-6 py-3 border-b ${
-        isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
-      }`} style={{ gap: 8 }}>
+      <View className={`flex-row px-6 py-3 border-b ${isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
+        }`} style={{ gap: 8 }}>
         {(['all', 'official', 'personal'] as EventType[]).map((filter) => (
           <Pressable
             key={filter}
             onPress={() => setActiveFilter(filter)}
-            className={`px-4 py-2 rounded-full ${
-              activeFilter === filter
-                ? isDark
-                  ? 'bg-[#D4AF37]'
-                  : 'bg-[#2B5F9E]'
-                : isDark
-                  ? 'bg-slate-700'
-                  : 'bg-slate-100'
-            }`}
+            className={`px-4 py-2 rounded-full ${activeFilter === filter
+              ? isDark
+                ? 'bg-[#D4AF37]'
+                : 'bg-[#2B5F9E]'
+              : isDark
+                ? 'bg-slate-700'
+                : 'bg-slate-100'
+              }`}
           >
             <Text
-              className={`text-sm font-semibold capitalize ${
-                activeFilter === filter
-                  ? 'text-white'
-                  : isDark
-                    ? 'text-gray-400'
-                    : 'text-slate-600'
-              }`}
+              className={`text-sm font-semibold capitalize ${activeFilter === filter
+                ? 'text-white'
+                : isDark
+                  ? 'text-gray-400'
+                  : 'text-slate-600'
+                }`}
             >
               {filter === 'all' ? 'All' : filter}
             </Text>
@@ -132,9 +246,8 @@ export default function AllEventsScreen() {
             {filteredEvents.map((event) => (
               <View
                 key={event.id}
-                className={`p-4 rounded-2xl border shadow-sm ${
-                  isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-                }`}
+                className={`p-4 rounded-2xl border shadow-sm ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+                  }`}
                 style={{ gap: 16 }}
               >
                 {/* Date Header */}
@@ -144,9 +257,8 @@ export default function AllEventsScreen() {
                     size={16}
                     color={isDark ? "#9CA3AF" : "#64748B"}
                   />
-                  <Text className={`text-xs font-semibold ml-2 ${
-                    isDark ? "text-gray-400" : "text-slate-500"
-                  }`}>
+                  <Text className={`text-xs font-semibold ml-2 ${isDark ? "text-gray-400" : "text-slate-500"
+                    }`}>
                     {formatDate(event.date)}
                   </Text>
                 </View>
@@ -170,18 +282,16 @@ export default function AllEventsScreen() {
                         {event.title}
                       </Text>
                       <View
-                        className={`px-2 py-0.5 rounded-full ${
-                          event.type === 'official'
-                            ? 'bg-blue-100'
-                            : 'bg-amber-100'
-                        }`}
+                        className={`px-2 py-0.5 rounded-full ${event.type === 'official'
+                          ? 'bg-blue-100'
+                          : 'bg-amber-100'
+                          }`}
                       >
                         <Text
-                          className={`text-[10px] font-bold uppercase tracking-tighter ${
-                            event.type === 'official'
-                              ? 'text-blue-600'
-                              : 'text-amber-600'
-                          }`}
+                          className={`text-[10px] font-bold uppercase tracking-tighter ${event.type === 'official'
+                            ? 'text-blue-600'
+                            : 'text-amber-600'
+                            }`}
                         >
                           {event.type === 'official' ? 'Official' : 'Personal'}
                         </Text>
@@ -210,21 +320,167 @@ export default function AllEventsScreen() {
             ))}
           </View>
         ) : (
-          <View className={`p-8 rounded-2xl border items-center ${
-            isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-          }`}>
+          <View className={`p-8 rounded-2xl border items-center ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+            }`}>
             <MaterialIcons name="event-busy" size={48} color={isDark ? "#4B5563" : "#CBD5E1"} />
             <Text className={`mt-4 text-center ${isDark ? "text-gray-400" : "text-slate-400"}`}>
               No events found
             </Text>
-            {activeFilter !== 'all' && (
-              <Text className={`mt-2 text-center text-xs ${isDark ? "text-gray-500" : "text-slate-500"}`}>
-                Try changing the filter
-              </Text>
-            )}
+            <Pressable
+              onPress={() => {
+                setEditingEventId(null);
+                setEventForm({
+                  title: '',
+                  description: '',
+                  location: '',
+                  date: new Date(),
+                  startTime: '',
+                  endTime: '',
+                  type: 'official',
+                });
+                setFormErrors({});
+                setShowAddEventModal(true);
+              }}
+              className="mt-6 bg-[#2B5F9E] px-6 py-3 rounded-xl shadow-sm active:opacity-90"
+            >
+              <Text className="text-white font-bold">Add New Event</Text>
+            </Pressable>
           </View>
         )}
       </ScrollView>
+
+      {/* Add Event Modal */}
+      <Modal
+        visible={showAddEventModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddEventModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className={`rounded-t-3xl max-h-[90%] flex-1 ${isDark ? "bg-slate-800" : "bg-white"}`}>
+            <SafeAreaView edges={['bottom']} className="flex-1">
+              <View className={`flex-row items-center justify-between px-6 pt-4 pb-4 border-b ${isDark ? "border-slate-700" : "border-slate-100"}`}>
+                <Text className={`text-2xl font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
+                  Add New Event
+                </Text>
+                <Pressable onPress={() => setShowAddEventModal(false)}>
+                  <MaterialIcons name="close" size={24} color={isDark ? "#9CA3AF" : "#64748B"} />
+                </Pressable>
+              </View>
+
+              <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 20 }}>
+                <View className="px-6 pt-6" style={{ gap: 20 }}>
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? "text-gray-300" : "text-slate-700"}`}>Event Title *</Text>
+                    <TextInput
+                      value={eventForm.title}
+                      onChangeText={(t) => setEventForm({ ...eventForm, title: t })}
+                      placeholder="Title"
+                      placeholderTextColor={isDark ? "#6B7280" : "#94A3B8"}
+                      className={`border rounded-2xl px-4 py-4 text-base ${isDark ? "bg-slate-700 text-white border-slate-600" : "bg-white text-slate-800 border-slate-200"} ${formErrors.title ? 'border-red-500' : ''}`}
+                    />
+                  </View>
+
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? "text-gray-300" : "text-slate-700"}`}>Date</Text>
+                    <Pressable onPress={() => setShowDatePicker(true)} className={`border rounded-2xl px-4 py-4 ${isDark ? "bg-slate-700 border-slate-600" : "bg-white border-slate-200"}`}>
+                      <Text className={isDark ? "text-white" : "text-slate-800"}>{eventForm.date.toLocaleDateString()}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View className="flex-row" style={{ gap: 12 }}>
+                    <View className="flex-1">
+                      <Text className={`text-sm font-semibold mb-2 ${isDark ? "text-gray-300" : "text-slate-700"}`}>Start Time *</Text>
+                      <Pressable onPress={() => setShowStartTimePicker(true)} className={`border rounded-2xl px-4 py-4 ${isDark ? "bg-slate-700 border-slate-600" : "bg-white border-slate-200"} ${formErrors.startTime ? 'border-red-500' : ''}`}>
+                        <Text className={isDark ? "text-white" : "text-slate-800"}>{eventForm.startTime || '09:00'}</Text>
+                      </Pressable>
+                    </View>
+                    <View className="flex-1">
+                      <Text className={`text-sm font-semibold mb-2 ${isDark ? "text-gray-300" : "text-slate-700"}`}>End Time *</Text>
+                      <Pressable onPress={() => setShowEndTimePicker(true)} className={`border rounded-2xl px-4 py-4 ${isDark ? "bg-slate-700 border-slate-600" : "bg-white border-slate-200"} ${formErrors.endTime ? 'border-red-500' : ''}`}>
+                        <Text className={isDark ? "text-white" : "text-slate-800"}>{eventForm.endTime || '10:00'}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? "text-gray-300" : "text-slate-700"}`}>
+                      Description
+                    </Text>
+                    <TextInput
+                      value={eventForm.description}
+                      onChangeText={(t) => setEventForm({ ...eventForm, description: t })}
+                      placeholder="Description"
+                      multiline
+                      className={`border rounded-2xl px-4 py-4 text-base min-h-[100px] ${isDark ? "bg-slate-700 text-white border-slate-600" : "bg-white text-slate-800 border-slate-200"}`}
+                    />
+                  </View>
+
+                  <Pressable
+                    onPress={handleSaveEvent}
+                    disabled={isSubmitting}
+                    className={`rounded-2xl p-4 items-center shadow-sm mt-4 bg-[#2B5E9C] ${isSubmitting ? "opacity-50" : ""}`}
+                  >
+                    {isSubmitting ? <ActivityIndicator color="white" /> : <Text className="text-white font-semibold text-base">Save Event</Text>}
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Simplified Pickers for all-events */}
+      <Modal visible={showDatePicker} transparent animationType="fade">
+        <Pressable className="flex-1 bg-black/50 justify-center items-center" onPress={() => setShowDatePicker(false)}>
+          <View className={`w-[80%] rounded-3xl p-6 ${isDark ? "bg-slate-800" : "bg-white"}`}>
+            <Text className={`text-lg font-bold mb-4 ${isDark ? "text-white" : "text-slate-800"}`}>Select Date</Text>
+            <ScrollView className="max-h-64">
+              {calendarDays.map((d, i) => (
+                <Pressable key={i} onPress={() => { setEventForm({ ...eventForm, date: d.date }); setShowDatePicker(false); }} className={`p-3 rounded-lg mb-2 ${isSameDay(d.date, eventForm.date) ? 'bg-blue-500' : ''}`}>
+                  <Text className={isSameDay(d.date, eventForm.date) ? 'text-white' : isDark ? 'text-white' : 'text-slate-800'}>{d.date.toLocaleDateString()}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showStartTimePicker} transparent animationType="fade">
+        <Pressable className="flex-1 bg-black/50 justify-center items-center" onPress={() => setShowStartTimePicker(false)}>
+          <View className={`w-[80%] rounded-3xl p-6 ${isDark ? "bg-slate-800" : "bg-white"}`}>
+            <Text className={`text-lg font-bold mb-4 ${isDark ? "text-white" : "text-slate-800"}`}>Start Time</Text>
+            <ScrollView className="max-h-64">
+              {Array.from({ length: 24 }).map((_, h) => [0, 30].map(m => {
+                const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                return (
+                  <Pressable key={time} onPress={() => { setEventForm({ ...eventForm, startTime: time }); setShowStartTimePicker(false); }} className="p-3">
+                    <Text className={isDark ? 'text-white' : 'text-slate-800'}>{time}</Text>
+                  </Pressable>
+                );
+              }))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showEndTimePicker} transparent animationType="fade">
+        <Pressable className="flex-1 bg-black/50 justify-center items-center" onPress={() => setShowEndTimePicker(false)}>
+          <View className={`w-[80%] rounded-3xl p-6 ${isDark ? "bg-slate-800" : "bg-white"}`}>
+            <Text className={`text-lg font-bold mb-4 ${isDark ? "text-white" : "text-slate-800"}`}>End Time</Text>
+            <ScrollView className="max-h-64">
+              {Array.from({ length: 24 }).map((_, h) => [0, 30].map(m => {
+                const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                return (
+                  <Pressable key={time} onPress={() => { setEventForm({ ...eventForm, endTime: time }); setShowEndTimePicker(false); }} className="p-3">
+                    <Text className={isDark ? 'text-white' : 'text-slate-800'}>{time}</Text>
+                  </Pressable>
+                );
+              }))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

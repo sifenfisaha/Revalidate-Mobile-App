@@ -4,7 +4,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiService } from '@/services/api';
+import { apiService, API_ENDPOINTS } from '@/services/api';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { showToast } from '@/utils/toast';
+import { Image } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useThemeStore } from '@/features/theme/theme.store';
 import '../../global.css';
@@ -43,13 +47,15 @@ export default function CPDHoursTrackingScreen() {
     activityType: 'participatory',
   });
   const [cpdSubmitting, setCpdSubmitting] = useState(false);
+  const [fileUri, setFileUri] = useState<string | null>(null);
+  const [cpdFile, setCpdFile] = useState<{ name: string; size: string; type: string } | null>(null);
   const [showCpdDatePicker, setShowCpdDatePicker] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const monthNames = [
-    'January','February','March','April','May','June','July','August','September','October','November','December'
+    'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'
   ];
-  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const getDaysInMonth = (month: number, year: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (month: number, year: number) => new Date(year, month, 1).getDay();
@@ -109,6 +115,50 @@ export default function CPDHoursTrackingScreen() {
     return nodes;
   };
   const progress = (totalHours / targetHours) * 100;
+
+  const handleFileSelect = async (source: 'gallery' | 'camera' | 'files') => {
+    try {
+      let result: any;
+
+      if (source === 'gallery') {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permissionResult.granted) {
+          showToast.error('Permission to access gallery is required', 'Permission Denied');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, allowsEditing: false, quality: 1 });
+        if (!result.canceled && result.assets && result.assets[0]) {
+          const asset = result.assets[0];
+          const sizeInMB = asset.fileSize ? `${(asset.fileSize / (1024 * 1024)).toFixed(2)} MB` : '0 MB';
+          setFileUri(asset.uri);
+          setCpdFile({ name: asset.fileName || `image_${Date.now()}.jpg`, size: sizeInMB, type: asset.type || asset.mimeType || 'image/jpeg' });
+        }
+      } else if (source === 'camera') {
+        const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permissionResult.granted) {
+          showToast.error('Permission to access camera is required', 'Permission Denied');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 1 });
+        if (!result.canceled && result.assets && result.assets[0]) {
+          const asset = result.assets[0];
+          const sizeInMB = asset.fileSize ? `${(asset.fileSize / (1024 * 1024)).toFixed(2)} MB` : '0 MB';
+          setFileUri(asset.uri);
+          setCpdFile({ name: asset.fileName || `photo_${Date.now()}.jpg`, size: sizeInMB, type: asset.type || asset.mimeType || 'image/jpeg' });
+        }
+      } else if (source === 'files') {
+        result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+        if (!result.canceled && result.size != null) {
+          const sizeInMB = `${(result.size / (1024 * 1024)).toFixed(2)} MB`;
+          setFileUri(result.uri);
+          setCpdFile({ name: result.name, size: sizeInMB, type: result.mimeType || 'application/octet-stream' });
+        }
+      }
+    } catch (error: any) {
+      console.error('Error selecting file for CPD:', error);
+      showToast.error(error.message || 'Failed to select file', 'Error');
+    }
+  };
 
   // Calculate circle progress
   const radius = 80;
@@ -172,8 +222,8 @@ export default function CPDHoursTrackingScreen() {
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
-      <ScrollView 
-        className="flex-1" 
+      <ScrollView
+        className="flex-1"
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -187,9 +237,6 @@ export default function CPDHoursTrackingScreen() {
             colors={['#D4AF37', '#2B5F9E']}
           />
         }
-        className="flex-1" 
-        contentContainerStyle={{ paddingBottom: 100 }}
-        showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View className="px-6 pb-4">
@@ -197,11 +244,10 @@ export default function CPDHoursTrackingScreen() {
             <Text className={`text-2xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-800"}`}>
               CPD Portfolio
             </Text>
-            <Pressable 
+            <Pressable
               onPress={() => router.push('/(tabs)/gallery')}
-              className={`w-10 h-10 rounded-full shadow-sm items-center justify-center border ${
-                isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
-              }`}
+              className={`w-10 h-10 rounded-full shadow-sm items-center justify-center border ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+                }`}
             >
               <MaterialIcons name="photo-library" size={20} color={isDark ? "#9CA3AF" : "#64748B"} />
             </Pressable>
@@ -213,9 +259,8 @@ export default function CPDHoursTrackingScreen() {
 
         {/* CPD Summary Card */}
         <View className="px-6 mb-6">
-          <View className={`rounded-3xl p-6 shadow-sm border items-center ${
-            isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-          }`}>
+          <View className={`rounded-3xl p-6 shadow-sm border items-center ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+            }`}>
             {/* Circular Progress */}
             <View className="relative items-center justify-center mb-6">
               <Svg width={192} height={192} viewBox="0 0 192 192">
@@ -262,14 +307,12 @@ export default function CPDHoursTrackingScreen() {
             {/* Breakdown Cards */}
             <View className="w-full flex-row" style={{ gap: 16 }}>
               {/* Participatory Hours */}
-              <View className={`flex-1 p-4 rounded-2xl border ${
-                isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-100"
-              }`}>
+              <View className={`flex-1 p-4 rounded-2xl border ${isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-100"
+                }`}>
                 <View className="flex-row items-center mb-1" style={{ gap: 8 }}>
                   <View className="w-2 h-2 rounded-full bg-[#2563EB]" />
-                  <Text className={`text-xs font-semibold uppercase ${
-                    isDark ? "text-gray-400" : "text-slate-500"
-                  }`}>
+                  <Text className={`text-xs font-semibold uppercase ${isDark ? "text-gray-400" : "text-slate-500"
+                    }`}>
                     Participatory
                   </Text>
                 </View>
@@ -282,14 +325,12 @@ export default function CPDHoursTrackingScreen() {
               </View>
 
               {/* Non-Participatory Hours */}
-              <View className={`flex-1 p-4 rounded-2xl border ${
-                isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-100"
-              }`}>
+              <View className={`flex-1 p-4 rounded-2xl border ${isDark ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-100"
+                }`}>
                 <View className="flex-row items-center mb-1" style={{ gap: 8 }}>
                   <View className={`w-2 h-2 rounded-full ${isDark ? "bg-gray-500" : "bg-slate-300"}`} />
-                  <Text className={`text-xs font-semibold uppercase ${
-                    isDark ? "text-gray-400" : "text-slate-500"
-                  }`}>
+                  <Text className={`text-xs font-semibold uppercase ${isDark ? "text-gray-400" : "text-slate-500"
+                    }`}>
                     Non-Part.
                   </Text>
                 </View>
@@ -306,54 +347,47 @@ export default function CPDHoursTrackingScreen() {
 
         {/* Filter Tabs */}
         <View className="px-6 mb-6">
-          <View className={`flex-row p-1 rounded-xl ${
-            isDark ? "bg-slate-700/50" : "bg-slate-200/50"
-          }`} style={{ gap: 4 }}>
+          <View className={`flex-row p-1 rounded-xl ${isDark ? "bg-slate-700/50" : "bg-slate-200/50"
+            }`} style={{ gap: 4 }}>
             <Pressable
               onPress={() => setActiveFilter('all')}
-              className={`flex-1 py-2 rounded-lg ${
-                activeFilter === 'all' 
-                  ? (isDark ? 'bg-slate-800 shadow-sm' : 'bg-white shadow-sm') 
-                  : ''
-              }`}
+              className={`flex-1 py-2 rounded-lg ${activeFilter === 'all'
+                ? (isDark ? 'bg-slate-800 shadow-sm' : 'bg-white shadow-sm')
+                : ''
+                }`}
             >
-              <Text className={`text-sm text-center ${
-                activeFilter === 'all' 
-                  ? 'font-semibold text-[#2563EB]' 
-                  : (isDark ? 'font-medium text-gray-400' : 'font-medium text-slate-500')
-              }`}>
+              <Text className={`text-sm text-center ${activeFilter === 'all'
+                ? 'font-semibold text-[#2563EB]'
+                : (isDark ? 'font-medium text-gray-400' : 'font-medium text-slate-500')
+                }`}>
                 All
               </Text>
             </Pressable>
             <Pressable
               onPress={() => setActiveFilter('participatory')}
-              className={`flex-1 py-2 rounded-lg ${
-                activeFilter === 'participatory' 
-                  ? (isDark ? 'bg-slate-800 shadow-sm' : 'bg-white shadow-sm') 
-                  : ''
-              }`}
+              className={`flex-1 py-2 rounded-lg ${activeFilter === 'participatory'
+                ? (isDark ? 'bg-slate-800 shadow-sm' : 'bg-white shadow-sm')
+                : ''
+                }`}
             >
-              <Text className={`text-sm text-center ${
-                activeFilter === 'participatory' 
-                  ? 'font-semibold text-[#2563EB]' 
-                  : (isDark ? 'font-medium text-gray-400' : 'font-medium text-slate-500')
-              }`}>
+              <Text className={`text-sm text-center ${activeFilter === 'participatory'
+                ? 'font-semibold text-[#2563EB]'
+                : (isDark ? 'font-medium text-gray-400' : 'font-medium text-slate-500')
+                }`}>
                 Participatory
               </Text>
             </Pressable>
             <Pressable
               onPress={() => setActiveFilter('non-participatory')}
-              className={`flex-1 py-2 rounded-lg ${
-                activeFilter === 'non-participatory' 
-                  ? (isDark ? 'bg-slate-800 shadow-sm' : 'bg-white shadow-sm') 
-                  : ''
-              }`}
+              className={`flex-1 py-2 rounded-lg ${activeFilter === 'non-participatory'
+                ? (isDark ? 'bg-slate-800 shadow-sm' : 'bg-white shadow-sm')
+                : ''
+                }`}
             >
-              <Text className={`text-sm text-center ${
-                activeFilter === 'non-participatory' 
-                  ? 'font-semibold text-[#2563EB]' 
-                  : (isDark ? 'font-medium text-gray-400' : 'font-medium text-slate-500')
-              }`}>
+              <Text className={`text-sm text-center ${activeFilter === 'non-participatory'
+                ? 'font-semibold text-[#2563EB]'
+                : (isDark ? 'font-medium text-gray-400' : 'font-medium text-slate-500')
+                }`}>
                 Non-Part.
               </Text>
             </Pressable>
@@ -383,18 +417,17 @@ export default function CPDHoursTrackingScreen() {
                     // For now, we'll keep it as a placeholder
                     console.log('View activity:', activity.id);
                   }}
-                  className={`p-4 rounded-2xl border shadow-sm flex-row items-center ${
-                    isDark 
-                      ? "bg-slate-800 border-slate-700 active:bg-slate-700" 
-                      : "bg-white border-slate-100 active:bg-slate-50"
-                  }`}
+                  className={`p-4 rounded-2xl border shadow-sm flex-row items-center ${isDark
+                    ? "bg-slate-800 border-slate-700 active:bg-slate-700"
+                    : "bg-white border-slate-100 active:bg-slate-50"
+                    }`}
                   style={{ gap: 16 }}
                 >
                   <View className={`w-12 h-12 rounded-xl ${activity.iconBgColor} items-center justify-center flex-shrink-0`}>
-                    <MaterialIcons 
-                      name={activity.icon} 
-                      size={24} 
-                      color={activity.iconColor} 
+                    <MaterialIcons
+                      name={activity.icon}
+                      size={24}
+                      color={activity.iconColor}
                     />
                   </View>
                   <View className="flex-1 min-w-0">
@@ -405,12 +438,10 @@ export default function CPDHoursTrackingScreen() {
                       {activity.date} • {activity.hours} Hours
                     </Text>
                     <View className="flex-row mt-2" style={{ gap: 8 }}>
-                      <View className={`px-2 py-0.5 rounded-md ${
-                        isDark ? "bg-slate-700" : "bg-slate-100"
-                      }`}>
-                        <Text className={`text-[10px] font-semibold ${
-                          isDark ? "text-gray-300" : "text-slate-600"
+                      <View className={`px-2 py-0.5 rounded-md ${isDark ? "bg-slate-700" : "bg-slate-100"
                         }`}>
+                        <Text className={`text-[10px] font-semibold ${isDark ? "text-gray-300" : "text-slate-600"
+                          }`}>
                           {activity.type === 'participatory' ? 'Participatory' : 'Non-Participatory'}
                         </Text>
                       </View>
@@ -427,9 +458,8 @@ export default function CPDHoursTrackingScreen() {
                 </Pressable>
               ))
             ) : (
-              <View className={`p-8 rounded-2xl border items-center ${
-                isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-              }`}>
+              <View className={`p-8 rounded-2xl border items-center ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+                }`}>
                 <MaterialIcons name="inbox" size={48} color={isDark ? "#4B5563" : "#CBD5E1"} />
                 <Text className={`mt-4 text-center ${isDark ? "text-gray-400" : "text-slate-400"}`}>
                   No {activeFilter === 'all' ? '' : activeFilter === 'participatory' ? 'participatory' : 'non-participatory'} activities found
@@ -441,7 +471,7 @@ export default function CPDHoursTrackingScreen() {
       </ScrollView>
 
       {/* Floating Action Button */}
-      <View 
+      <View
         className="absolute right-6 items-center"
         style={{ bottom: 80 + insets.bottom }}
       >
@@ -461,8 +491,8 @@ export default function CPDHoursTrackingScreen() {
         onRequestClose={() => setShowAddCpdModal(false)}
       >
         <View className="flex-1 bg-black/50 justify-end">
-          <View className={`rounded-t-3xl max-h-[90%] ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
-            <SafeAreaView edges={['bottom']}>
+          <View className={`rounded-t-3xl max-h-[90%] flex-1 ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
+            <SafeAreaView edges={['bottom']} className="flex-1">
               <View className={`flex-row items-center justify-between px-6 pt-4 pb-4 border-b ${isDark ? 'border-slate-700' : 'border-slate-100'}`}>
                 <Text className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Add CPD Activity</Text>
                 <Pressable onPress={() => setShowAddCpdModal(false)}>
@@ -544,19 +574,43 @@ export default function CPDHoursTrackingScreen() {
                           const token = await AsyncStorage.getItem('authToken');
                           if (!token) throw new Error('Not authenticated');
 
+                          // If there's an attached file, upload it first and include the document id
+                          let documentIds: number[] | undefined = undefined;
+                          if (cpdFile && fileUri) {
+                            try {
+                              const uploadRes: any = await apiService.uploadFile(
+                                API_ENDPOINTS.DOCUMENTS.UPLOAD,
+                                { uri: fileUri, type: cpdFile.type, name: cpdFile.name },
+                                token,
+                                { title: cpdForm.trainingName, category: 'cpd' }
+                              );
+
+                              const createdId = uploadRes?.data?.id || uploadRes?.id;
+                              if (createdId) documentIds = [createdId];
+                            } catch (err) {
+                              console.error('Error uploading file for CPD:', err);
+                              showToast.error('Failed to upload attachment', 'Error');
+                              // continue without attachment
+                            }
+                          }
+
                           await apiService.post('/api/v1/cpd-hours', {
                             training_name: cpdForm.trainingName,
                             activity_date: cpdForm.activityDate,
                             duration_minutes: cpdForm.durationMinutes,
                             activity_type: cpdForm.activityType,
+                            ...(documentIds ? { document_ids: documentIds } : {}),
                           }, token);
 
                           // reload
                           await loadCpdActivities();
                           setShowAddCpdModal(false);
                           setCpdForm({ trainingName: '', activityDate: '', durationMinutes: 0, activityType: 'participatory' });
+                          setCpdFile(null);
+                          setFileUri(null);
                         } catch (err) {
                           console.error('Error creating CPD entry:', err);
+                          showToast.error((err as any)?.message || 'Failed to create CPD entry', 'Error');
                         } finally {
                           setCpdSubmitting(false);
                         }
@@ -571,6 +625,35 @@ export default function CPDHoursTrackingScreen() {
                       )}
                     </Pressable>
                   </View>
+                  <View className="pt-4">
+                    <Text className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Attach Certificate / Evidence (optional)</Text>
+                    <View className="flex-row" style={{ gap: 8 }}>
+                      <Pressable onPress={() => handleFileSelect('gallery')} className={`px-4 py-2 rounded-2xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+                        <Text className={`${isDark ? 'text-white' : 'text-slate-800'}`}>Choose Photo</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handleFileSelect('camera')} className={`px-4 py-2 rounded-2xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+                        <Text className={`${isDark ? 'text-white' : 'text-slate-800'}`}>Take Photo</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handleFileSelect('files')} className={`px-4 py-2 rounded-2xl border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+                        <Text className={`${isDark ? 'text-white' : 'text-slate-800'}`}>Choose File</Text>
+                      </Pressable>
+                    </View>
+
+                    {cpdFile && (
+                      <View className="mt-3 flex-row items-center" style={{ gap: 8 }}>
+                        {cpdFile.type.startsWith('image/') && fileUri ? (
+                          <Image source={{ uri: fileUri }} style={{ width: 64, height: 64, borderRadius: 8 }} />
+                        ) : null}
+                        <View className="flex-1">
+                          <Text className={`${isDark ? 'text-white' : 'text-slate-800'} font-medium`} numberOfLines={1}>{cpdFile.name}</Text>
+                          <Text className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{cpdFile.size}</Text>
+                        </View>
+                        <Pressable onPress={() => { setCpdFile(null); setFileUri(null); }} className="p-2">
+                          <MaterialIcons name="close" size={18} color={isDark ? '#9CA3AF' : '#64748B'} />
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </ScrollView>
             </SafeAreaView>
@@ -578,46 +661,46 @@ export default function CPDHoursTrackingScreen() {
         </View>
       </Modal>
 
-        {/* CPD Date Picker Modal */}
-        <Modal
-          visible={showCpdDatePicker}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setShowCpdDatePicker(false)}
-        >
-          <Pressable className="flex-1 bg-black/50 justify-end" onPress={() => setShowCpdDatePicker(false)}>
-            <Pressable onPress={(e) => e.stopPropagation()} className={`${isDark ? 'bg-slate-800' : 'bg-white'} rounded-t-3xl p-6`}>
-              <View className="flex-row items-center justify-between mb-4">
-                <Pressable onPress={() => navigateMonth('prev')} className="p-2 rounded-full">
-                  <MaterialIcons name="chevron-left" size={24} color={isDark ? '#D1D5DB' : '#4B5563'} />
-                </Pressable>
-                <View className="flex-row items-center gap-2">
-                  <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{monthNames[selectedMonth]}</Text>
-                  <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedYear}</Text>
+      {/* CPD Date Picker Modal */}
+      <Modal
+        visible={showCpdDatePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCpdDatePicker(false)}
+      >
+        <Pressable className="flex-1 bg-black/50 justify-end" onPress={() => setShowCpdDatePicker(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()} className={`${isDark ? 'bg-slate-800' : 'bg-white'} rounded-t-3xl p-6`}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Pressable onPress={() => navigateMonth('prev')} className="p-2 rounded-full">
+                <MaterialIcons name="chevron-left" size={24} color={isDark ? '#D1D5DB' : '#4B5563'} />
+              </Pressable>
+              <View className="flex-row items-center gap-2">
+                <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{monthNames[selectedMonth]}</Text>
+                <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedYear}</Text>
+              </View>
+              <Pressable onPress={() => navigateMonth('next')} className="p-2 rounded-full">
+                <MaterialIcons name="chevron-right" size={24} color={isDark ? '#D1D5DB' : '#4B5563'} />
+              </Pressable>
+            </View>
+
+            <View className="flex-row justify-between mb-3">
+              {dayNames.map((day) => (
+                <View key={day} className="w-10 items-center">
+                  <Text className={`text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{day}</Text>
                 </View>
-                <Pressable onPress={() => navigateMonth('next')} className="p-2 rounded-full">
-                  <MaterialIcons name="chevron-right" size={24} color={isDark ? '#D1D5DB' : '#4B5563'} />
-                </Pressable>
-              </View>
+              ))}
+            </View>
 
-              <View className="flex-row justify-between mb-3">
-                {dayNames.map((day) => (
-                  <View key={day} className="w-10 items-center">
-                    <Text className={`text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{day}</Text>
-                  </View>
-                ))}
-              </View>
+            <View className="flex-row flex-wrap justify-between mb-6">{renderCpdCalendar()}</View>
 
-              <View className="flex-row flex-wrap justify-between mb-6">{renderCpdCalendar()}</View>
-
-              <View className="flex-row gap-3">
-                <Pressable onPress={() => setShowCpdDatePicker(false)} className={`flex-1 py-3 rounded-xl ${isDark ? 'bg-slate-700' : 'bg-gray-100'}`}>
-                  <Text className={`text-center font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Cancel</Text>
-                </Pressable>
-              </View>
-            </Pressable>
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowCpdDatePicker(false)} className={`flex-1 py-3 rounded-xl ${isDark ? 'bg-slate-700' : 'bg-gray-100'}`}>
+                <Text className={`text-center font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Cancel</Text>
+              </Pressable>
+            </View>
           </Pressable>
-        </Modal>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

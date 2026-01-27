@@ -1,10 +1,13 @@
-import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '@/features/theme/theme.store';
 import { useProfile } from '@/hooks/useProfile';
+import { usePremium } from '@/hooks/usePremium';
+import { API_CONFIG } from '@revalidation-tracker/constants';
 import { showToast } from '@/utils/toast';
 import '../../global.css';
 
@@ -23,30 +26,56 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { isDark } = useThemeStore();
   const { profile, isLoading, isRefreshing, refresh } = useProfile();
+  const { isPremium } = usePremium();
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadLocalProfileImage();
+  }, []);
+
+  useEffect(() => {
+    if (profile?.image) {
+      // If it's a relative path, prefix with base URL
+      const imageUrl = profile.image.startsWith('http')
+        ? profile.image
+        : `${API_CONFIG.BASE_URL}${profile.image.startsWith('/') ? '' : '/'}${profile.image}`;
+      setProfileImage(imageUrl);
+    }
+  }, [profile]);
+
+  const loadLocalProfileImage = async () => {
+    try {
+      const savedImage = await AsyncStorage.getItem('profile_image_uri');
+      if (savedImage) setProfileImage(savedImage);
+    } catch (e) {
+      console.log('Failed to load local profile image', e);
+    }
+  };
 
   const onRefresh = async () => {
     await refresh();
+    await loadLocalProfileImage();
   };
 
   // Calculate days until revalidation
   const getDaysUntilRevalidation = (revalidationDate: string | null): number | null => {
     if (!revalidationDate) return null;
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const revalidation = new Date(revalidationDate);
     revalidation.setHours(0, 0, 0, 0);
-    
+
     const diffTime = revalidation.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     return diffDays;
   };
 
   // Format date for display
   const formatDate = (dateString: string | null): string => {
     if (!dateString) return 'Not set';
-    
+
     const date = new Date(dateString);
     return date.toLocaleDateString('en-GB', {
       day: 'numeric',
@@ -58,7 +87,7 @@ export default function ProfileScreen() {
   // Get professional role display name
   const getRoleDisplayName = (role: string | null): string => {
     if (!role) return 'Not set';
-    
+
     const roleMap: Record<string, string> = {
       doctor: 'Doctor',
       nurse: 'Nurse',
@@ -66,7 +95,7 @@ export default function ProfileScreen() {
       other: 'Other',
       other_healthcare: 'Other Healthcare',
     };
-    
+
     return roleMap[role] || role;
   };
 
@@ -169,8 +198,8 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView className={`flex-1 ${backgroundColor}`} edges={['top']}>
-      <ScrollView 
-        className="flex-1" 
+      <ScrollView
+        className="flex-1"
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -203,23 +232,38 @@ export default function ProfileScreen() {
             {/* Profile Section */}
             <View className="items-center mb-8">
               <View className="relative">
-                <View className={`w-32 h-32 rounded-full border-4 overflow-hidden shadow-sm ${borderColor}`}>
-                  <View className="w-full h-full bg-teal-200 items-center justify-center">
-                    <MaterialIcons name="person" size={64} color="#14B8A6" />
-                  </View>
+                <View className={`w-32 h-32 rounded-full border-4 overflow-hidden shadow-sm ${isPremium ? 'border-[#D4AF37]' : borderColor}`}>
+                  {profileImage ? (
+                    <Image source={{ uri: profileImage }} className="w-full h-full" />
+                  ) : (
+                    <View className={`w-full h-full items-center justify-center ${isPremium ? 'bg-gradient-to-br from-[#FFD700] to-[#D4AF37]' : 'bg-teal-200'}`}>
+                      <MaterialIcons name="person" size={64} color={isPremium ? '#1F2937' : '#14B8A6'} />
+                    </View>
+                  )}
                 </View>
-                <Pressable className={`absolute bottom-1 right-1 bg-[#2563EB] p-2 rounded-full border-2 shadow-lg ${borderColor}`}>
+                <Pressable
+                  onPress={() => router.push('/(tabs)/profile/account-settings')}
+                  className={`absolute bottom-1 right-1 ${isPremium ? 'bg-[#D4AF37] border-[#fff]' : 'bg-[#2563EB]'} p-2 rounded-full border-2 shadow-lg ${borderColor}`}
+                >
                   <MaterialIcons name="edit" size={16} color="#FFFFFF" />
                 </Pressable>
               </View>
-              <Text className={`mt-4 text-2xl font-bold ${textColor}`}>
+              <Text className={`mt-4 text-2xl font-bold ${isPremium ? 'text-[#D4AF37]' : textColor}`}>
                 {profile?.name || 'User'}
               </Text>
               {profile?.professionalRole && (
-                <View className="mt-2 flex-row items-center px-3 py-1 rounded-full bg-blue-100">
-                  <Text className="text-[#2563EB] text-xs font-semibold uppercase tracking-wider">
+                <View className={`mt-2 flex-row items-center px-3 py-1 rounded-full ${isPremium ? 'bg-[#FFF5D6]' : 'bg-blue-100'}`}>
+                  <Text className={`${isPremium ? 'text-[#B87E00]' : 'text-[#2563EB]'} text-xs font-semibold uppercase tracking-wider`}>
                     {getRoleDisplayName(profile.professionalRole)}
                   </Text>
+                </View>
+              )}
+
+              {isPremium && (
+                <View className="mt-3 flex-row items-center space-x-2">
+                  <View className="px-3 py-1 rounded-full bg-gradient-to-br from-[#FFD700] to-[#D4AF37]">
+                    <Text className="text-sm font-semibold text-[#1F2937]">⭐ Premium</Text>
+                  </View>
                 </View>
               )}
             </View>
@@ -227,7 +271,7 @@ export default function ProfileScreen() {
             {/* NMC Revalidation Due Card */}
             {profile?.revalidationDate && (
               <View className="px-6 mb-8">
-                <View className="bg-[#2563EB] p-5 rounded-2xl text-white shadow-xl">
+                <View className={`${isPremium ? 'bg-gradient-to-br from-[#FFD700] to-[#D4AF37]' : 'bg-[#2563EB]'} p-5 rounded-2xl text-white shadow-xl`}>
                   <View className="flex-row justify-between items-start mb-4">
                     <View>
                       <Text className="text-blue-100 text-sm opacity-80 mb-1">
@@ -241,15 +285,15 @@ export default function ProfileScreen() {
                       <MaterialIcons name="event-repeat" size={24} color="#FFFFFF" />
                     </View>
                   </View>
-                  
+
                   {/* Progress Bar */}
                   <View className="w-full bg-white/20 rounded-full h-2 mb-3">
-                    <View 
-                      className="bg-white h-2 rounded-full" 
-                      style={{ width: `${progressPercentage}%` }} 
+                    <View
+                      className="bg-white h-2 rounded-full"
+                      style={{ width: `${progressPercentage}%` }}
                     />
                   </View>
-                  
+
                   {daysLeft !== null && (
                     <View className="bg-white/20 self-start px-2 py-1 rounded">
                       <Text className="text-xs text-white font-medium">
@@ -268,7 +312,7 @@ export default function ProfileScreen() {
                 const itemTextColor = item.isDestructive ? 'text-red-600' : textColor;
                 const subtitleColor = isDark ? 'text-gray-400' : 'text-slate-400';
                 const chevronColor = item.isDestructive ? '#DC2626' : (isDark ? '#64748B' : '#94A3B8');
-                
+
                 return (
                   <Pressable
                     key={item.id}
@@ -276,10 +320,10 @@ export default function ProfileScreen() {
                     className={`w-full flex-row items-center p-4 rounded-2xl shadow-sm ${itemBgColor}`}
                   >
                     <View className={`w-10 h-10 rounded-xl ${item.iconBgColor} items-center justify-center mr-4`}>
-                      <MaterialIcons 
-                        name={item.icon} 
-                        size={20} 
-                        color={item.iconColor} 
+                      <MaterialIcons
+                        name={item.icon}
+                        size={20}
+                        color={item.iconColor}
                       />
                     </View>
                     {item.subtitle ? (
@@ -288,7 +332,7 @@ export default function ProfileScreen() {
                           {item.title}
                         </Text>
                         <Text className={`text-xs mt-0.5 ${subtitleColor}`}>
-                          {item.subtitle}
+                          {item.id === '3' && isPremium ? 'Premium' : item.subtitle}
                         </Text>
                       </View>
                     ) : (
@@ -296,10 +340,10 @@ export default function ProfileScreen() {
                         {item.title}
                       </Text>
                     )}
-                    <MaterialIcons 
-                      name="chevron-right" 
-                      size={20} 
-                      color={chevronColor} 
+                    <MaterialIcons
+                      name="chevron-right"
+                      size={20}
+                      color={chevronColor}
                     />
                   </Pressable>
                 );

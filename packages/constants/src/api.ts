@@ -57,5 +57,30 @@ export const API_ENDPOINTS = {
     DELETE: '/api/v1/work-hours',
     STATS_TOTAL: '/api/v1/work-hours/stats/total',
   },
+  REFLECTIONS: {
+    LIST: '/api/v1/reflections',
+    CREATE: '/api/v1/reflections',
+    GET_BY_ID: '/api/v1/reflections',
+    UPDATE: '/api/v1/reflections',
+    DELETE: '/api/v1/reflections',
+  },
+  FEEDBACK: {
+    LIST: '/api/v1/feedback',
+    CREATE: '/api/v1/feedback',
+    GET_BY_ID: '/api/v1/feedback',
+    UPDATE: '/api/v1/feedback',
+    DELETE: '/api/v1/feedback',
+  },
+  NOTIFICATIONS: {
+    LIST: '/api/v1/notifications',
+    MARK_READ: '/api/v1/notifications',
+  },
+  APPRAISALS: {
+    LIST: '/api/v1/appraisals',
+    CREATE: '/api/v1/appraisals',
+    GET_BY_ID: '/api/v1/appraisals',
+    UPDATE: '/api/v1/appraisals',
+    DELETE: '/api/v1/appraisals',
+  },
   HEALTH: '/health',
 } as const;

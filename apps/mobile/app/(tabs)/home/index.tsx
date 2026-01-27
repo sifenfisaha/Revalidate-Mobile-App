@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, Alert, Animated, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert, Animated, RefreshControl, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,7 @@ interface UserData {
   professionalRole: string | null;
   registrationNumber: string | null;
   revalidationDate: string | null;
+  image: string | null;
 }
 
 interface ActiveSession {
@@ -83,7 +84,7 @@ export default function DashboardScreen() {
         updateTimerFromSession();
         timerIntervalRef.current = setInterval(() => {
           updateTimerFromSession();
-        }, 1000);
+        }, 1000) as any;
       }
     } else {
       if (timerIntervalRef.current) {
@@ -120,10 +121,10 @@ export default function DashboardScreen() {
 
     const startTime = new Date(activeSession.startTime);
     const now = new Date();
-    
+
     // Calculate elapsed time minus total paused time
     const diffMs = now.getTime() - startTime.getTime() - totalPausedTime;
-    
+
     const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -144,7 +145,7 @@ export default function DashboardScreen() {
 
       if (response?.data && response.data.isActive) {
         setActiveSession(response.data);
-        
+
         // Load persisted pause state from AsyncStorage
         try {
           const storedPauseState = await AsyncStorage.getItem('workSessionPauseState');
@@ -213,7 +214,7 @@ export default function DashboardScreen() {
 
   const savePauseState = async () => {
     if (!activeSession) return;
-    
+
     try {
       const pauseState = {
         sessionId: activeSession.id,
@@ -294,46 +295,46 @@ export default function DashboardScreen() {
 
   const handlePauseSession = async () => {
     if (!activeSession || isPaused) return;
-    
+
     // Save current timer value before pausing
     setLastPausedTimer(timer);
     const now = new Date();
     setIsPaused(true);
     setPausedAt(now);
-    
+
     // Stop the timer interval
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
-    
+
     showToast.info('Session paused', 'Paused');
-    
+
     // Save pause state to AsyncStorage
     await savePauseState();
   };
 
   const handleResumeSession = async () => {
     if (!activeSession || !isPaused) return;
-    
+
     const now = new Date();
     const pauseStartTime = pausedAt || now;
     const pauseDuration = now.getTime() - pauseStartTime.getTime();
-    
+
     // Add the pause duration to total paused time
     setTotalPausedTime(prev => prev + pauseDuration);
     setIsPaused(false);
     setPausedAt(null);
     setLastPausedTimer(null);
-    
+
     // Restart the timer interval
     updateTimerFromSession();
     timerIntervalRef.current = setInterval(() => {
       updateTimerFromSession();
-    }, 1000);
-    
+    }, 1000) as any;
+
     showToast.info('Session resumed', 'Resumed');
-    
+
     // Save resume state to AsyncStorage
     await savePauseState();
   };
@@ -418,49 +419,43 @@ export default function DashboardScreen() {
 
       const response = await apiService.get<{
         success: boolean;
-        data: {
-          name: string | null;
-          email: string;
-          registrationNumber: string | null;
-          revalidationDate: string | null;
-          professionalRole: string | null;
-          subscriptionTier: string | null;
-          subscriptionStatus: string | null;
-        };
+        data: any;
       }>(API_ENDPOINTS.USERS.ME, token);
 
       if (response?.data) {
-        const userName = response.data.name || response.data.email.split('@')[0];
+        const data = response.data;
+        const userName = data.name || data.email?.split('@')[0] || 'User';
 
         setUserData({
           name: userName,
-          email: response.data.email,
-          professionalRole: response.data.professionalRole,
-          registrationNumber: response.data.registrationNumber,
-          revalidationDate: response.data.revalidationDate,
+          email: data.email,
+          professionalRole: data.professionalRole,
+          registrationNumber: data.registrationNumber,
+          revalidationDate: data.revalidationDate,
+          image: data.image || null,
         });
 
-        if (response.data.subscriptionTier) {
+        if (data.subscriptionTier) {
           await setSubscriptionInfo({
-            subscriptionTier: (response.data.subscriptionTier || 'free') as 'free' | 'premium',
-            subscriptionStatus: (response.data.subscriptionStatus || 'active') as 'active' | 'trial' | 'expired' | 'cancelled',
-            isPremium: response.data.subscriptionTier === 'premium',
-            canUseOffline: response.data.subscriptionTier === 'premium',
+            subscriptionTier: (data.subscriptionTier || 'free') as 'free' | 'premium',
+            subscriptionStatus: (data.subscriptionStatus || 'active') as 'active' | 'trial' | 'expired' | 'cancelled',
+            isPremium: data.subscriptionTier === 'premium',
+            canUseOffline: data.subscriptionTier === 'premium',
           });
         }
 
-        if (response.data.revalidationDate) {
+        if (data.revalidationDate) {
           try {
             let revalidationDate: Date;
-            const dateStr = response.data.revalidationDate;
-            
+            const dateStr = data.revalidationDate;
+
             if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-              const [year, month, day] = dateStr.split('-').map(Number);
-              revalidationDate = new Date(year, month - 1, day);
+              const dateParts = dateStr.split('-').map(Number);
+              revalidationDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
             } else {
               revalidationDate = new Date(dateStr);
             }
-            
+
             if (isNaN(revalidationDate.getTime())) {
               console.warn('Invalid revalidation date:', dateStr);
               setRevalidationDays(null);
@@ -487,7 +482,7 @@ export default function DashboardScreen() {
 
   const getRolePrefix = (role: string | null): string => {
     if (!role) return '';
-    
+
     const roleMap: Record<string, string> = {
       'doctor': 'Dr.',
       'nurse': 'Nurse',
@@ -496,7 +491,7 @@ export default function DashboardScreen() {
       'other_healthcare': '',
       'other': '',
     };
-    
+
     return roleMap[role] || '';
   };
 
@@ -509,10 +504,10 @@ export default function DashboardScreen() {
 
   const formatUserName = (): string => {
     if (!userData) return 'User';
-    
+
     const prefix = getRolePrefix(userData.professionalRole);
     const name = userData.name || userData.email.split('@')[0];
-    
+
     if (prefix) {
       return `${prefix} ${name}`;
     }
@@ -590,7 +585,7 @@ export default function DashboardScreen() {
       }>('/api/v1/notifications', token);
 
       if (response?.data) {
-        const unread = response.data.filter(n => 
+        const unread = response.data.filter(n =>
           n.status === '0' || n.isRead === false
         ).length;
         setUnreadNotifications(unread);
@@ -754,8 +749,8 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background-light"}`} edges={['top']}>
-      <ScrollView 
-        className="flex-1" 
+      <ScrollView
+        className="flex-1"
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -767,9 +762,9 @@ export default function DashboardScreen() {
           />
         }
       >
-        <View 
-          className="px-6 pt-6 pb-20 rounded-b-[40px]" 
-          style={{ 
+        <View
+          className="px-6 pt-6 pb-20 rounded-b-[40px]"
+          style={{
             backgroundColor: isPremium ? '#D4AF37' : '#2B5F9E',
             ...(isPremium && {
               shadowColor: '#D4AF37',
@@ -783,12 +778,11 @@ export default function DashboardScreen() {
           <View className="flex-row justify-between items-center mb-4">
             <View className="flex-row items-center gap-3">
               <View className="relative">
-                <View 
-                  className={`w-12 h-12 rounded-full border-2 items-center justify-center ${
-                    isPremium 
-                      ? 'bg-white/40 border-[#FFD700]' 
-                      : 'bg-white/30 border-white/30'
-                  }`}
+                <View
+                  className={`w-12 h-12 rounded-full border-2 items-center justify-center ${isPremium
+                    ? 'bg-white/40 border-[#FFD700]'
+                    : 'bg-white/30 border-white/30'
+                    }`}
                   style={isPremium ? {
                     shadowColor: '#FFD700',
                     shadowOffset: { width: 0, height: 2 },
@@ -797,10 +791,14 @@ export default function DashboardScreen() {
                     elevation: 4,
                   } : {}}
                 >
-                  <MaterialIcons name="person" size={24} color="#FFFFFF" />
+                  {userData?.image ? (
+                    <Image source={{ uri: userData.image }} className="w-full h-full rounded-full" />
+                  ) : (
+                    <MaterialIcons name="person" size={24} color="#FFFFFF" />
+                  )}
                 </View>
                 {isPremium ? (
-                  <View 
+                  <View
                     className="absolute -bottom-1 -right-1 bg-[#FFD700] w-5 h-5 rounded-full border-2 border-[#D4AF37] items-center justify-center"
                     style={{
                       shadowColor: '#FFD700',
@@ -822,7 +820,7 @@ export default function DashboardScreen() {
                     {getGreeting()}
                   </Text>
                   {isPremium && (
-                    <View 
+                    <View
                       className="px-2 py-0.5 rounded-full bg-[#FFD700]/20 border border-[#FFD700]/50"
                       style={{
                         shadowColor: '#FFD700',
@@ -838,8 +836,8 @@ export default function DashboardScreen() {
                     </View>
                   )}
                 </View>
-                <Text 
-                  className="text-white text-xl font-bold" 
+                <Text
+                  className="text-white text-xl font-bold"
                   numberOfLines={1}
                   style={isPremium ? {
                     textShadowColor: 'rgba(0, 0, 0, 0.3)',
@@ -852,7 +850,7 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            <Pressable 
+            <Pressable
               onPress={() => router.push('/(tabs)/notifications')}
               className="relative"
             >
@@ -871,12 +869,11 @@ export default function DashboardScreen() {
 
           {revalidationDays !== null && (
             <View className="flex-row justify-between items-center">
-              <View 
-                className={`px-3 py-2 rounded-2xl items-center border ${
-                  isPremium 
-                    ? 'bg-white/20 border-[#FFD700]/40' 
-                    : 'bg-white/10 border-white/20'
-                }`}
+              <View
+                className={`px-3 py-2 rounded-2xl items-center border ${isPremium
+                  ? 'bg-white/20 border-[#FFD700]/40'
+                  : 'bg-white/10 border-white/20'
+                  }`}
                 style={isPremium ? {
                   shadowColor: '#FFD700',
                   shadowOffset: { width: 0, height: 2 },
@@ -885,26 +882,24 @@ export default function DashboardScreen() {
                   elevation: 4,
                 } : {}}
               >
-                <Text className={`text-[10px] font-semibold uppercase ${
-                  isPremium ? 'text-white/90' : 'text-white/80'
-                }`}>
+                <Text className={`text-[10px] font-semibold uppercase ${isPremium ? 'text-white/90' : 'text-white/80'
+                  }`}>
                   Revalidation
                 </Text>
-                <Text 
-                  className={`font-bold ${
-                    isPremium ? 'text-white' : 'text-white'
-                  }`}
+                <Text
+                  className={`font-bold ${isPremium ? 'text-white' : 'text-white'
+                    }`}
                   style={isPremium ? {
                     textShadowColor: 'rgba(0, 0, 0, 0.3)',
                     textShadowOffset: { width: 0, height: 1 },
                     textShadowRadius: 2,
                   } : {}}
                 >
-                  {revalidationDays > 0 
+                  {revalidationDays > 0
                     ? `${revalidationDays} ${revalidationDays === 1 ? 'Day' : 'Days'}`
                     : revalidationDays === 0
-                    ? 'Due Today'
-                    : 'Overdue'
+                      ? 'Due Today'
+                      : 'Overdue'
                   }
                 </Text>
               </View>
@@ -914,38 +909,34 @@ export default function DashboardScreen() {
 
         <View className="flex-1 -mt-12 px-6 relative z-10" style={{ gap: 24 }}>
           {activeSession && activeSession.isActive ? (
-            <View className={`p-5 rounded-3xl shadow-lg border ${
-              isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-            }`}>
+            <View className={`p-5 rounded-3xl shadow-lg border ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+              }`}>
               <View className="flex-row justify-between items-center mb-4">
                 <View className="flex-row items-center gap-2">
                   {!isPaused && <PulsingDot isDark={isDark} />}
                   {isPaused && (
                     <View className="w-2 h-2 rounded-full bg-yellow-500" />
                   )}
-                  <Text className={`text-sm font-semibold uppercase tracking-tight ${
-                    isDark ? "text-gray-400" : "text-slate-500"
-                  }`}>
+                  <Text className={`text-sm font-semibold uppercase tracking-tight ${isDark ? "text-gray-400" : "text-slate-500"
+                    }`}>
                     {isPaused ? 'Paused Clinical Session' : 'Active Clinical Session'}
                   </Text>
                 </View>
-                <View className={`px-2 py-1 rounded-lg ${
-                  isDark ? "bg-slate-700" : "bg-slate-100"
-                }`}>
+                <View className={`px-2 py-1 rounded-lg ${isDark ? "bg-slate-700" : "bg-slate-100"
+                  }`}>
                   <Text className={`text-xs ${isDark ? "text-gray-300" : "text-slate-600"}`}>
-                    Started {new Date(activeSession.startTime).toLocaleTimeString('en-US', { 
-                      hour: '2-digit', 
+                    Started {new Date(activeSession.startTime).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
                       minute: '2-digit',
-                      hour12: true 
+                      hour12: true
                     })}
                   </Text>
                 </View>
               </View>
               <View className="flex-row items-center justify-between">
                 <View className="flex-col">
-                  <Text className={`text-4xl font-mono font-bold tracking-tighter ${
-                    isDark ? "text-white" : "text-slate-800"
-                  }`}>
+                  <Text className={`text-4xl font-mono font-bold tracking-tighter ${isDark ? "text-white" : "text-slate-800"
+                    }`}>
                     {formatTime(timer.hours)}:{formatTime(timer.minutes)}:{formatTime(timer.seconds)}
                   </Text>
                   <Text className={`text-xs mt-1 ${isDark ? "text-gray-500" : "text-slate-400"}`}>
@@ -956,14 +947,13 @@ export default function DashboardScreen() {
                   <Pressable
                     onPress={handleRestartSession}
                     disabled={isPausingSession}
-                    className={`px-4 py-3 rounded-2xl flex-row items-center gap-2 ${
-                      isDark ? "bg-slate-700" : "bg-slate-200"
-                    }`}
+                    className={`px-4 py-3 rounded-2xl flex-row items-center gap-2 ${isDark ? "bg-slate-700" : "bg-slate-200"
+                      }`}
                   >
-                    <MaterialIcons 
-                      name="refresh" 
-                      size={18} 
-                      color={isDark ? "#FFFFFF" : "#1F2937"} 
+                    <MaterialIcons
+                      name="refresh"
+                      size={18}
+                      color={isDark ? "#FFFFFF" : "#1F2937"}
                     />
                     <Text className={`font-semibold text-xs ${isDark ? "text-white" : "text-slate-800"}`}>
                       Restart
@@ -990,26 +980,22 @@ export default function DashboardScreen() {
               </View>
             </View>
           ) : (
-            <View className={`p-5 rounded-3xl shadow-lg border ${
-              isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-            }`}>
+            <View className={`p-5 rounded-3xl shadow-lg border ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+              }`}>
               <View className="flex-row justify-between items-center mb-4">
                 <View className="flex-row items-center gap-2">
-                  <View className={`w-2 h-2 rounded-full ${
-                    isDark ? "bg-gray-600" : "bg-gray-300"
-                  }`} />
-                  <Text className={`text-sm font-semibold uppercase tracking-tight ${
-                    isDark ? "text-gray-400" : "text-slate-500"
-                  }`}>
+                  <View className={`w-2 h-2 rounded-full ${isDark ? "bg-gray-600" : "bg-gray-300"
+                    }`} />
+                  <Text className={`text-sm font-semibold uppercase tracking-tight ${isDark ? "text-gray-400" : "text-slate-500"
+                    }`}>
                     Clinical Session
                   </Text>
                 </View>
               </View>
               <View className="flex-row items-center justify-between">
                 <View className="flex-col">
-                  <Text className={`text-lg font-semibold ${
-                    isDark ? "text-gray-300" : "text-slate-600"
-                  }`}>
+                  <Text className={`text-lg font-semibold ${isDark ? "text-gray-300" : "text-slate-600"
+                    }`}>
                     No active session
                   </Text>
                   <Text className={`text-xs mt-1 ${isDark ? "text-gray-500" : "text-slate-400"}`}>
@@ -1019,9 +1005,8 @@ export default function DashboardScreen() {
                 <Pressable
                   onPress={handleStartSession}
                   disabled={isStartingSession}
-                  className={`bg-[#10B981] px-6 py-3 rounded-2xl flex-row items-center gap-2 shadow-lg ${
-                    isStartingSession ? "opacity-50" : ""
-                  }`}
+                  className={`bg-[#10B981] px-6 py-3 rounded-2xl flex-row items-center gap-2 shadow-lg ${isStartingSession ? "opacity-50" : ""
+                    }`}
                 >
                   <MaterialIcons name="play-arrow" size={20} color="#FFFFFF" />
                   <Text className="text-white font-bold">
@@ -1041,9 +1026,8 @@ export default function DashboardScreen() {
                     router.push(stat.route as any);
                   }
                 }}
-                className={`p-4 rounded-3xl border ${
-                  isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-                }`}
+                className={`p-4 rounded-3xl border ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+                  }`}
                 style={{ width: '47%' }}
               >
                 <View className={`w-10 h-10 ${stat.bgColor} rounded-2xl items-center justify-center mb-3`}>
@@ -1071,9 +1055,8 @@ export default function DashboardScreen() {
               )}
             </View>
             {isLoadingActivities ? (
-              <View className={`p-6 rounded-2xl border items-center ${
-                isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-              }`}>
+              <View className={`p-6 rounded-2xl border items-center ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+                }`}>
                 <Text className={`text-sm ${isDark ? "text-gray-400" : "text-slate-500"}`}>
                   Loading recent activity...
                 </Text>
@@ -1091,15 +1074,14 @@ export default function DashboardScreen() {
                         router.push('/(tabs)/notifications');
                       }
                     }}
-                    className={`flex-row items-center gap-4 p-4 rounded-2xl border ${
-                      isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-50"
-                    }`}
+                    className={`flex-row items-center gap-4 p-4 rounded-2xl border ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-50"
+                      }`}
                   >
                     <View className={`${activity.bgColor} p-2.5 rounded-xl`}>
-                      <MaterialIcons 
-                        name={activity.icon} 
-                        size={20} 
-                        color={activity.iconColor} 
+                      <MaterialIcons
+                        name={activity.icon}
+                        size={20}
+                        color={activity.iconColor}
                       />
                     </View>
                     <View className="flex-1">
@@ -1117,9 +1099,8 @@ export default function DashboardScreen() {
                 ))}
               </View>
             ) : (
-              <View className={`p-6 rounded-2xl border items-center ${
-                isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
-              }`}>
+              <View className={`p-6 rounded-2xl border items-center ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"
+                }`}>
                 <MaterialIcons name="history" size={32} color={isDark ? "#4B5563" : "#CBD5E1"} />
                 <Text className={`mt-3 text-center ${isDark ? "text-gray-400" : "text-slate-400"}`}>
                   No recent activity

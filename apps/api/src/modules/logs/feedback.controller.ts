@@ -14,14 +14,14 @@ import { z } from 'zod';
 
 const createFeedbackSchema = z.object({
   feedback_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  feedback_type: z.enum(['patient', 'colleague']),
+  feedback_type: z.enum(['patient', 'colleague', 'manager']),
   feedback_text: z.string().optional(),
   document_ids: z.array(z.number()).optional(),
 });
 
 const updateFeedbackSchema = z.object({
   feedback_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  feedback_type: z.enum(['patient', 'colleague']).optional(),
+  feedback_type: z.enum(['patient', 'colleague', 'manager']).optional(),
   feedback_text: z.string().optional(),
   document_ids: z.array(z.number()).optional(),
 });

@@ -9,7 +9,7 @@ export interface FeedbackLog {
   id: number;
   user_id: number;
   feedback_date: string;
-  feedback_type: 'patient' | 'colleague';
+  feedback_type: 'patient' | 'colleague' | 'manager';
   feedback_text?: string;
   document_ids?: string; // JSON array of document IDs
   created_at: string;
@@ -18,14 +18,14 @@ export interface FeedbackLog {
 
 export interface CreateFeedbackLog {
   feedback_date: string;
-  feedback_type: 'patient' | 'colleague';
+  feedback_type: 'patient' | 'colleague' | 'manager';
   feedback_text?: string;
   document_ids?: number[];
 }
 
 export interface UpdateFeedbackLog {
   feedback_date?: string;
-  feedback_type?: 'patient' | 'colleague';
+  feedback_type?: 'patient' | 'colleague' | 'manager';
   feedback_text?: string;
   document_ids?: number[];
 }
@@ -78,7 +78,7 @@ export async function getUserFeedbackLogs(
     offset?: number;
     startDate?: string;
     endDate?: string;
-    feedbackType?: 'patient' | 'colleague';
+    feedbackType?: 'patient' | 'colleague' | 'manager';
   }
 ): Promise<{ feedbackLogs: FeedbackLog[]; total: number }> {
   const pool = getMySQLPool();

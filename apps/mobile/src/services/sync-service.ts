@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  saveOfflineOperation,
   getPendingOperations,
   updateOperationStatus,
   deleteOperation,
@@ -15,7 +14,7 @@ let networkUnsubscribe: (() => void) | null = null;
 
 export async function initializeSyncService() {
   const isConnected = await checkNetworkStatus();
-  
+
   if (isConnected) {
     await syncPendingOperations();
   }
@@ -44,7 +43,7 @@ export async function syncPendingOperations(): Promise<void> {
 
   try {
     const operations = await getPendingOperations();
-    
+
     if (operations.length === 0) {
       isSyncing = false;
       return;
@@ -70,7 +69,7 @@ export async function syncPendingOperations(): Promise<void> {
         let response: any;
 
         const operationToken = operation.headers?.Authorization?.replace('Bearer ', '') || token;
-        
+
         switch (operation.method) {
           case 'GET':
             response = await apiService.get(operation.endpoint, operationToken);
@@ -93,9 +92,9 @@ export async function syncPendingOperations(): Promise<void> {
         syncedCount++;
       } catch (error: any) {
         console.error(`Failed to sync operation ${operation.id}:`, error);
-        
+
         const newRetryCount = (operation.retryCount || 0) + 1;
-        
+
         if (newRetryCount >= 3) {
           await deleteOperation(operation.id!);
           failedCount++;
@@ -117,22 +116,6 @@ export async function syncPendingOperations(): Promise<void> {
   } finally {
     isSyncing = false;
   }
-}
-
-export async function queueOperation(
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-  endpoint: string,
-  data?: any,
-  headers?: Record<string, string>
-): Promise<void> {
-  await saveOfflineOperation({
-    method,
-    endpoint,
-    data,
-    headers,
-    timestamp: Date.now(),
-    retryCount: 0,
-  });
 }
 
 export async function getPendingOperationCount(): Promise<number> {

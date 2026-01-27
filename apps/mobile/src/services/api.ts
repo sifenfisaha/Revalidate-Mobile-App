@@ -1,8 +1,19 @@
 import { API_CONFIG, API_ENDPOINTS } from '@revalidation-tracker/constants';
-import { checkNetworkStatus } from './network-monitor';
-import { queueOperation } from './sync-service';
-import { getSubscriptionInfo, canUseOfflineMode } from '@/utils/subscription';
+import { queueOperation } from './offline-storage';
+import { useSubscriptionStore } from '@/features/subscription/subscription.store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { showToast } from '@/utils/toast';
+import { checkNetworkStatus } from './network-monitor';
+
+// Custom error to distinguish server responses from network failures
+class ServerError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ServerError';
+    this.status = status;
+  }
+}
 
 class ApiService {
   private baseURL: string;
@@ -13,71 +24,54 @@ class ApiService {
     this.timeout = API_CONFIG.TIMEOUT;
   }
 
-  private async shouldQueueOffline(endpoint: string): Promise<{ shouldQueue: boolean; isFreeUser: boolean }> {
-    const isConnected = await checkNetworkStatus();
-    if (isConnected) return { shouldQueue: false, isFreeUser: false };
-
-    const subscriptionInfo = await getSubscriptionInfo();
-    if (!subscriptionInfo) {
-      try {
-        const token = await AsyncStorage.getItem('authToken');
-        if (token) {
-          const response = await this.getRaw<{
-            success: boolean;
-            data: { subscriptionTier: string };
-          }>(API_ENDPOINTS.USERS.ME, token);
-          
-          if (response?.data?.subscriptionTier) {
-            const tier = response.data.subscriptionTier;
-            const canOffline = canUseOfflineMode(tier);
-            await this.updateSubscriptionCache(tier);
-            return { shouldQueue: canOffline, isFreeUser: tier === 'free' };
-          }
-        }
-      } catch (error) {
-        console.error('Error checking subscription for offline mode:', error);
-      }
-      return { shouldQueue: false, isFreeUser: true };
-    }
-
-    return { shouldQueue: subscriptionInfo.canUseOffline, isFreeUser: !subscriptionInfo.isPremium };
+  private getOfflineCapability(): { canOffline: boolean; isFreeUser: boolean } {
+    const { isPremium, canUseOffline } = useSubscriptionStore.getState();
+    return {
+      canOffline: canUseOffline,
+      isFreeUser: !isPremium,
+    };
   }
 
-  private async updateSubscriptionCache(subscriptionTier: string): Promise<void> {
-    const { setSubscriptionInfo } = await import('@/utils/subscription');
-    await setSubscriptionInfo({
-      subscriptionTier: subscriptionTier as 'free' | 'premium',
-      subscriptionStatus: 'active',
-      isPremium: subscriptionTier === 'premium',
-      canUseOffline: subscriptionTier === 'premium',
-    });
+  /**
+   * Identifies endpoints that REQUIRE internet for all users.
+   */
+  private isOnlineOnly(endpoint: string): boolean {
+    const onlineOnlyPrefixes = [
+      '/api/v1/auth',
+      '/api/v1/users/onboarding'
+    ];
+    return onlineOnlyPrefixes.some(prefix => endpoint.startsWith(prefix));
+  }
+
+  private updateSubscriptionCache(subscriptionTier: string): void {
+    try {
+      useSubscriptionStore.getState().setTier(subscriptionTier as 'free' | 'premium');
+    } catch (e) {
+      console.warn('Failed to update subscription cache', e);
+    }
   }
 
   private async getRaw<T>(endpoint: string, token?: string): Promise<T> {
     const response = await fetch(this.getUrl(endpoint), {
       method: 'GET',
       headers: this.getHeaders(token),
-      signal: this.createTimeoutSignal(this.timeout),
+      signal: this.createTimeoutSignal(this.timeout) as any,
     });
 
     if (!response.ok) {
       const errorMessage = await this.parseErrorResponse(response);
-      throw new Error(errorMessage);
+      throw new ServerError(errorMessage, response.status);
     }
 
-    return response.json();
+    return response.json() as Promise<T>;
   }
 
-  /**
-   * Parse error responses safely, supporting JSON and plain text.
-   */
   private async parseErrorResponse(response: Response): Promise<string> {
     try {
-      const json = await response.json();
+      const json = await response.json() as any;
       if (json && (json.error || json.message || json.errors)) {
         return json.error || json.message || JSON.stringify(json.errors);
       }
-      // Unexpected JSON shape
       return JSON.stringify(json);
     } catch (e) {
       try {
@@ -89,165 +83,234 @@ class ApiService {
     }
   }
 
-  /**
-   * Get the full URL for an endpoint
-   */
   private getUrl(endpoint: string): string {
-    // Remove leading slash if present to avoid double slashes
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
     return `${this.baseURL}/${cleanEndpoint}`;
   }
 
-  /**
-   * Get default headers
-   */
-  private getHeaders(token?: string): HeadersInit {
-    const headers: HeadersInit = {
+  private getHeaders(token?: string): Record<string, string> {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     };
-
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-
     return headers;
   }
 
-  /**
-   * Create an AbortController with timeout
-   */
   private createTimeoutSignal(timeoutMs: number): AbortSignal {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), timeoutMs);
     return controller.signal;
   }
 
-  async get<T>(endpoint: string, token?: string): Promise<T> {
-    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
-    
-    if (shouldQueue) {
-      await queueOperation('GET', endpoint, undefined, token ? { Authorization: `Bearer ${token}` } : undefined);
-      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
-    }
-    
-    if (isFreeUser) {
-      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
-    }
-
-    return this.getRaw<T>(endpoint, token);
+  // Cache Management
+  private getCacheKey(endpoint: string): string {
+    return `api_cache_${endpoint}`;
   }
 
-  async post<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
-    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
-    
-    if (shouldQueue) {
-      await queueOperation('POST', endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
-      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+  private async setCache(endpoint: string, data: any): Promise<void> {
+    try {
+      await AsyncStorage.setItem(this.getCacheKey(endpoint), JSON.stringify({
+        timestamp: Date.now(),
+        data,
+      }));
+    } catch (e) {
+      console.warn('Failed to cache response', e);
     }
-    
-    if (isFreeUser) {
-      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
-    }
-
-    const response = await fetch(this.getUrl(endpoint), {
-      method: 'POST',
-      headers: this.getHeaders(token),
-      body: JSON.stringify(data),
-      signal: this.createTimeoutSignal(this.timeout),
-    });
-
-    if (!response.ok) {
-      const errorMessage = await this.parseErrorResponse(response);
-      throw new Error(errorMessage);
-    }
-
-    return response.json();
   }
 
-  async put<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
-    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
-    
-    if (shouldQueue) {
-      await queueOperation('PUT', endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
-      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
+  private async getCache<T>(endpoint: string): Promise<T | null> {
+    try {
+      const cached = await AsyncStorage.getItem(this.getCacheKey(endpoint));
+      if (!cached) return null;
+      const { data } = JSON.parse(cached);
+      return data as T;
+    } catch (e) {
+      return null;
     }
-    
-    if (isFreeUser) {
-      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
-    }
-
-    const response = await fetch(this.getUrl(endpoint), {
-      method: 'PUT',
-      headers: this.getHeaders(token),
-      body: JSON.stringify(data),
-      signal: this.createTimeoutSignal(this.timeout),
-    });
-
-    if (!response.ok) {
-      const errorMessage = await this.parseErrorResponse(response);
-      throw new Error(errorMessage);
-    }
-
-    return response.json();
-  }
-
-  async patch<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
-    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
-    
-    if (shouldQueue) {
-      await queueOperation('PATCH', endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
-      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
-    }
-    
-    if (isFreeUser) {
-      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
-    }
-
-    const response = await fetch(this.getUrl(endpoint), {
-      method: 'PATCH',
-      headers: this.getHeaders(token),
-      body: JSON.stringify(data),
-      signal: this.createTimeoutSignal(this.timeout),
-    });
-
-    if (!response.ok) {
-      const errorMessage = await this.parseErrorResponse(response);
-      throw new Error(errorMessage);
-    }
-
-    return response.json();
-  }
-
-  async delete<T>(endpoint: string, token?: string): Promise<T> {
-    const { shouldQueue, isFreeUser } = await this.shouldQueueOffline(endpoint);
-    
-    if (shouldQueue) {
-      await queueOperation('DELETE', endpoint, undefined, token ? { Authorization: `Bearer ${token}` } : undefined);
-      throw new Error('OFFLINE_MODE: Operation queued for sync when connection is restored');
-    }
-    
-    if (isFreeUser) {
-      throw new Error('INTERNET_REQUIRED: This feature requires an internet connection. Please connect to the internet and try again.');
-    }
-
-    const response = await fetch(this.getUrl(endpoint), {
-      method: 'DELETE',
-      headers: this.getHeaders(token),
-      signal: this.createTimeoutSignal(this.timeout),
-    });
-
-    if (!response.ok) {
-      const errorMessage = await this.parseErrorResponse(response);
-      throw new Error(errorMessage);
-    }
-
-    return response.json();
   }
 
   /**
-   * Upload a file
+   * Fast Fetching Strategy:
+   * - Online-Only/Free: Forced network, failure = prompt user.
+   * - Premium: Cache-First (instant UI) + Background Revalidate.
    */
+  async get<T>(endpoint: string, token?: string): Promise<T> {
+    const isOnlineMandatory = this.isOnlineOnly(endpoint);
+    const { canOffline, isFreeUser } = this.getOfflineCapability();
+
+    if (isOnlineMandatory || isFreeUser) {
+      // Force network for security/auth or Free plan
+      try {
+        const data = await this.getRaw<T>(endpoint, token);
+
+        // Cache successful non-mandatory GETs for faster future load (e.g. if profile becomes premium)
+        if (!isOnlineMandatory) {
+          this.setCache(endpoint, data).catch(() => { });
+        }
+
+        // Auto-sync subscription status if we hit the "me" endpoint
+        if (endpoint === API_ENDPOINTS.USERS.ME && (data as any)?.data?.subscriptionTier) {
+          this.updateSubscriptionCache((data as any).data.subscriptionTier);
+        }
+
+        return data;
+      } catch (error: any) {
+        if (error instanceof ServerError) throw error;
+
+        // Verify if it's REALLY a network issue before blaming internet
+        const isConnected = await checkNetworkStatus();
+        if (!isConnected) {
+          throw new Error('INTERNET_REQUIRED: This feature requires an internet connection.');
+        }
+
+        throw error; // Likely a server-timeout or unreachable host while user is online
+      }
+    }
+
+    // PREMIUM USER: Cache-First strategy for speed
+    const cachedData = await this.getCache<T>(endpoint);
+
+    // Always trigger background update if we have a token
+    const fetchNewData = async () => {
+      try {
+        const data = await this.getRaw<T>(endpoint, token);
+        await this.setCache(endpoint, data);
+
+        if (endpoint === API_ENDPOINTS.USERS.ME && (data as any)?.data?.subscriptionTier) {
+          this.updateSubscriptionCache((data as any).data.subscriptionTier);
+        }
+        return data;
+      } catch (e) {
+        console.log('Background revalidation failed for', endpoint, e);
+        throw e;
+      }
+    };
+
+    if (cachedData) {
+      // Return cache immediately, silent background update
+      fetchNewData().catch(() => { });
+      return cachedData;
+    }
+
+    // No cache available, wait for network
+    return fetchNewData();
+  }
+
+  /**
+   * Write Strategy with Queue Fallback:
+   * - Online-Only/Free: Forced network.
+   * - Premium: If network fails, queue for background sync.
+   */
+  private async handleOfflineWrite<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', endpoint: string, data: any, token?: string, originalError?: any): Promise<T> {
+    if (originalError instanceof ServerError) {
+      // Server successfully reached but rejected data (e.g. 400 Bad Request)
+      // DO NOT queue invalid data.
+      throw originalError;
+    }
+
+    const { canOffline, isFreeUser } = this.getOfflineCapability();
+    const isOnlineMandatory = this.isOnlineOnly(endpoint);
+
+    if (canOffline && !isOnlineMandatory) {
+      // PREMIUM: Queue the write if it's a general feature
+      // BUT first check if we are actually offline
+      const isConnected = await checkNetworkStatus();
+      if (!isConnected) {
+        await queueOperation(method, endpoint, data, token ? { Authorization: `Bearer ${token}` } : undefined);
+        showToast.info('Action saved offline', 'Offline Mode');
+        return { success: true, message: 'Action queued for sync', data: null } as unknown as T;
+      }
+    }
+
+    // FREE or Online-Mandatory or Premium-but-online-failure: Enforce connection check
+    if (isFreeUser || isOnlineMandatory || canOffline) {
+      const isConnected = await checkNetworkStatus();
+      if (!isConnected) {
+        throw new Error('INTERNET_REQUIRED: This feature requires an internet connection.');
+      }
+    }
+
+    throw originalError;
+  }
+
+  async post<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
+    try {
+      const response = await fetch(this.getUrl(endpoint), {
+        method: 'POST',
+        headers: this.getHeaders(token),
+        body: JSON.stringify(data),
+        signal: this.createTimeoutSignal(this.timeout) as any,
+      });
+
+      if (!response.ok) {
+        const errorMessage = await this.parseErrorResponse(response);
+        throw new ServerError(errorMessage, response.status);
+      }
+      return response.json() as Promise<T>;
+    } catch (error: any) {
+      return this.handleOfflineWrite('POST', endpoint, data, token, error);
+    }
+  }
+
+  async put<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
+    try {
+      const response = await fetch(this.getUrl(endpoint), {
+        method: 'PUT',
+        headers: this.getHeaders(token),
+        body: JSON.stringify(data),
+        signal: this.createTimeoutSignal(this.timeout) as any,
+      });
+
+      if (!response.ok) {
+        const errorMessage = await this.parseErrorResponse(response);
+        throw new ServerError(errorMessage, response.status);
+      }
+      return response.json() as Promise<T>;
+    } catch (error: any) {
+      return this.handleOfflineWrite('PUT', endpoint, data, token, error);
+    }
+  }
+
+  async patch<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
+    try {
+      const response = await fetch(this.getUrl(endpoint), {
+        method: 'PATCH',
+        headers: this.getHeaders(token),
+        body: JSON.stringify(data),
+        signal: this.createTimeoutSignal(this.timeout) as any,
+      });
+
+      if (!response.ok) {
+        const errorMessage = await this.parseErrorResponse(response);
+        throw new ServerError(errorMessage, response.status);
+      }
+      return response.json() as Promise<T>;
+    } catch (error: any) {
+      return this.handleOfflineWrite('PATCH', endpoint, data, token, error);
+    }
+  }
+
+  async delete<T>(endpoint: string, token?: string): Promise<T> {
+    try {
+      const response = await fetch(this.getUrl(endpoint), {
+        method: 'DELETE',
+        headers: this.getHeaders(token),
+        signal: this.createTimeoutSignal(this.timeout) as any,
+      });
+
+      if (!response.ok) {
+        const errorMessage = await this.parseErrorResponse(response);
+        throw new ServerError(errorMessage, response.status);
+      }
+      return response.json() as Promise<T>;
+    } catch (error: any) {
+      return this.handleOfflineWrite('DELETE', endpoint, undefined, token, error);
+    }
+  }
+
   async uploadFile(
     endpoint: string,
     file: { uri: string; type: string; name: string },
@@ -255,14 +318,11 @@ class ApiService {
     additionalData?: Record<string, string>
   ): Promise<unknown> {
     const formData = new FormData();
-    
-    // For React Native, we need to handle file uploads differently
-    // @ts-expect-error - React Native FormData accepts file objects
     formData.append('file', {
       uri: file.uri,
       type: file.type,
       name: file.name,
-    });
+    } as any);
 
     if (additionalData) {
       Object.entries(additionalData).forEach(([key, value]) => {
@@ -270,7 +330,7 @@ class ApiService {
       });
     }
 
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       Accept: 'application/json',
     };
 
@@ -278,31 +338,37 @@ class ApiService {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(this.getUrl(endpoint), {
-      method: 'POST',
-      headers,
-      body: formData,
-      signal: this.createTimeoutSignal(this.timeout * 2), // Longer timeout for file uploads
-    });
+    try {
+      const response = await fetch(this.getUrl(endpoint), {
+        method: 'POST',
+        headers,
+        body: formData as any,
+        signal: this.createTimeoutSignal(this.timeout * 2) as any,
+      });
 
-    if (!response.ok) {
-      const errorMessage = await this.parseErrorResponse(response);
-      throw new Error(errorMessage);
+      if (!response.ok) {
+        const errorMessage = await this.parseErrorResponse(response);
+        throw new ServerError(errorMessage, response.status);
+      }
+
+      return response.json();
+    } catch (error: any) {
+      if (error instanceof ServerError) throw error;
+
+      // Verify connectivity
+      const isConnected = await checkNetworkStatus();
+      if (!isConnected) {
+        throw new Error('INTERNET_REQUIRED: This feature requires an internet connection.');
+      }
+
+      throw error; // Re-throw original error if user is online
     }
-
-    return response.json();
   }
 
-  /**
-   * Health check
-   */
   async healthCheck(): Promise<{ status: string; message: string }> {
     return this.get<{ status: string; message: string }>(API_ENDPOINTS.HEALTH);
   }
 }
 
-// Export singleton instance
 export const apiService = new ApiService();
-
-// Export endpoints for convenience
 export { API_ENDPOINTS };

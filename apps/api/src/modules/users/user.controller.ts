@@ -14,7 +14,7 @@ import {
   getRegistrationProgress,
   getOnboardingData,
 } from './user.service';
-import { 
+import {
   UpdateUserProfile,
   OnboardingStep1Role,
   OnboardingStep2Personal,
@@ -47,6 +47,7 @@ function formatUserResponse(user: any, name?: string | null, requirements?: any)
     professionalRole: user.professional_role,
     workSetting: user.work_setting,
     scopeOfPractice: user.scope_of_practice,
+    image: user.image,
     subscriptionTier: user.subscription_tier,
     subscriptionStatus: user.subscription_status,
     trialEndsAt: user.trial_ends_at,

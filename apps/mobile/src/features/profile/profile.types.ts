@@ -7,6 +7,7 @@ export interface UserProfile {
   professionalRole: string | null;
   workSetting: string | null;
   scopeOfPractice: string | null;
+  image: string | null;
   subscriptionTier: string;
   subscriptionStatus: string;
   trialEndsAt: string | null;

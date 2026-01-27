@@ -10,10 +10,12 @@ import {
   CreateDocument,
   UpdateDocument,
 } from './document.model';
+import { updateUserImage } from '../users/user.service';
 import { z } from 'zod';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import axios from 'axios';
 
 // Configure multer for file uploads
 const upload = multer({
@@ -46,7 +48,7 @@ const upload = multer({
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ];
-    
+
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -91,7 +93,7 @@ export const uploadDocument = [
 
     // Create file URL/path (in production, this would be S3 URL)
     const filePath = `/uploads/documents/${req.file.filename}`;
-    const fileUrl = process.env.API_BASE_URL 
+    const fileUrl = process.env.API_BASE_URL
       ? `${process.env.API_BASE_URL}${filePath}`
       : filePath;
 
@@ -103,6 +105,15 @@ export const uploadDocument = [
     };
 
     const document = await createDocument(req.user.userId, documentData);
+
+    // Sync profile picture if category matches
+    if (validated.category === 'profile_picture') {
+      try {
+        await updateUserImage(req.user.userId, fileUrl);
+      } catch (e) {
+        console.error('Failed to sync profile picture', e);
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -142,17 +153,58 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
     endDate,
   });
 
-  res.json({
-    success: true,
-    data: documents.map(doc => ({
+  // Enhance document list with file size when file exists on local uploads
+  const mapped = await Promise.all(documents.map(async (doc) => {
+    let sizeStr: string | undefined = undefined;
+
+    try {
+      if (doc.document) {
+        const docStr = String(doc.document);
+
+        // Local uploads (stored on server filesystem)
+        if (docStr.startsWith('/uploads/')) {
+          const filePath = path.join(process.cwd(), docStr);
+          if (fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            const bytes = stat.size || 0;
+            sizeStr = `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+          }
+        }
+
+        // Remote files (S3 or remote URL) - try HEAD to get Content-Length
+        if (!sizeStr && /^https?:\/\//i.test(docStr)) {
+          try {
+            const head = await axios.head(docStr, { timeout: 3000 });
+            const cl = head.headers['content-length'] || head.headers['Content-Length'];
+            const bytes = cl ? parseInt(String(cl), 10) : NaN;
+            if (!Number.isNaN(bytes)) {
+              sizeStr = `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+            }
+          } catch (err) {
+            // HEAD may fail (CORS, blocked, etc.) - ignore and leave size undefined
+            // console.debug('HEAD request failed for', docStr, err?.message || err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error getting file size for document', doc.id, err);
+      sizeStr = undefined;
+    }
+
+    return {
       id: doc.id,
       name: doc.document_name,
       category: doc.type,
-      size: doc.document ? 'Unknown' : undefined, // Size would need to be stored separately
+      size: sizeStr,
       type: doc.document?.split('.').pop()?.toLowerCase() || 'file',
       created_at: doc.created_at,
       updated_at: doc.updated_at,
-    })),
+    };
+  }));
+
+  res.json({
+    success: true,
+    data: mapped,
     pagination: {
       total,
       limit: limit || total,
@@ -236,7 +288,7 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
 
   // Get document first to get file path for deletion
   const document = await getDocumentById(req.params.id, req.user.userId);
-  
+
   if (!document) {
     throw new ApiError(404, 'Document not found');
   }

@@ -15,25 +15,25 @@ import { z } from 'zod';
 const createEventSchema = z.object({
   type: z.enum(['official', 'personal']),
   title: z.string().min(1, 'Title is required'),
-  description: z.string().optional(),
+  description: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format').optional(),
-  startTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Start time must be in HH:MM format').optional(),
-  endTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'End time must be in HH:MM format').optional(),
-  location: z.string().optional(),
-  invite: z.string().optional(),
+  endDate: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format').optional()),
+  startTime: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Start time must be in HH:MM format').optional()),
+  endTime: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'End time must be in HH:MM format').optional()),
+  location: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  invite: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 });
 
 const updateEventSchema = z.object({
   type: z.enum(['official', 'personal']).optional(),
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  startTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
-  endTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
-  location: z.string().optional(),
-  invite: z.string().optional(),
+  title: z.preprocess((val) => (val === '' ? undefined : val), z.string().min(1).optional()),
+  description: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  date: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+  endDate: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+  startTime: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional()),
+  endTime: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional()),
+  location: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+  invite: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 });
 
 /**
@@ -101,13 +101,21 @@ export const create = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(401, 'Authentication required');
   }
 
-  const validated = createEventSchema.parse(req.body) as CreateCalendarEvent;
-  const event = await createCalendarEvent(req.user.userId, validated);
+  try {
+    const validated = createEventSchema.parse(req.body) as CreateCalendarEvent;
+    const event = await createCalendarEvent(req.user.userId, validated);
 
-  res.status(201).json({
-    success: true,
-    data: formatEventResponse(event),
-  });
+    res.status(201).json({
+      success: true,
+      data: formatEventResponse(event),
+    });
+  } catch (error) {
+    console.error('Error in calendar.create:', error);
+    if (error instanceof z.ZodError) {
+      throw error; // Let global error handler handle Zod errors nicely
+    }
+    throw error;
+  }
 });
 
 /**
@@ -174,13 +182,18 @@ export const update = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(401, 'Authentication required');
   }
 
-  const validated = updateEventSchema.parse(req.body) as UpdateCalendarEvent;
-  const event = await updateCalendarEvent(req.params.id, req.user.userId, validated);
+  try {
+    const validated = updateEventSchema.parse(req.body) as UpdateCalendarEvent;
+    const event = await updateCalendarEvent(req.params.id, req.user.userId, validated);
 
-  res.json({
-    success: true,
-    data: formatEventResponse(event),
-  });
+    res.json({
+      success: true,
+      data: formatEventResponse(event),
+    });
+  } catch (error) {
+    console.error('Error in calendar.update:', error);
+    throw error;
+  }
 });
 
 /**

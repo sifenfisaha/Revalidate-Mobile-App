@@ -1,8 +1,8 @@
 import { prisma } from '../../lib/prisma';
 import { ApiError } from '../../common/middleware/error-handler';
-import { 
-  User, 
-  UpdateUserProfile, 
+import {
+  User,
+  UpdateUserProfile,
   ROLE_REQUIREMENTS,
   OnboardingStep1Role,
   OnboardingStep2Personal,
@@ -16,30 +16,42 @@ import { mapUserRow, mapUserToDb } from '../../config/database-mapping';
  * Get user by ID
  */
 export async function getUserById(userId: string): Promise<User | null> {
-  const user = await prisma.users.findUnique({
-    where: { id: parseInt(userId) },
-  });
+  try {
+    // Use raw query to bypass Prisma enum validation for existing data with invalid values
+    const users = await prisma.$queryRaw<any[]>`
+      SELECT * FROM users WHERE id = ${BigInt(userId)} LIMIT 1
+    `;
 
-  if (!user) {
-    return null;
+    if (!users || users.length === 0) {
+      return null;
+    }
+
+    return mapUserRow(users[0]) as User;
+  } catch (error) {
+    console.error('Error fetching user by ID:', error);
+    throw new ApiError(500, 'Internal server error');
   }
-
-  return mapUserRow(user) as User;
 }
 
 /**
  * Get user by email
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
-  const user = await prisma.users.findFirst({
-    where: { email },
-  });
+  try {
+    // Use raw query to bypass Prisma enum validation
+    const users = await prisma.$queryRaw<any[]>`
+      SELECT * FROM users WHERE email = ${email} LIMIT 1
+    `;
 
-  if (!user) {
-    return null;
+    if (!users || users.length === 0) {
+      return null;
+    }
+
+    return mapUserRow(users[0]) as User;
+  } catch (error) {
+    console.error('Error fetching user by email:', error);
+    throw new ApiError(500, 'Internal server error');
   }
-
-  return mapUserRow(user) as User;
 }
 
 /**
@@ -51,7 +63,7 @@ export async function updateUserProfile(
 ): Promise<User> {
   // Map updates to database column names
   const dbUpdates = mapUserToDb(updates);
-  
+
   // Build update object
   const updateData: any = {};
 
@@ -86,12 +98,25 @@ export async function updateUserProfile(
 
   updateData.updated_at = new Date();
 
-  const updated = await prisma.users.update({
-    where: { id: parseInt(userId) },
-    data: updateData,
+  // Use raw SQL for update to bypass Prisma enum validation on other columns (like legacy 'status' or 'reg_type')
+  const setClauses: string[] = [];
+  const params: any[] = [];
+
+  Object.entries(updateData).forEach(([key, value]) => {
+    setClauses.push(`${key} = ?`);
+    params.push(value);
   });
 
-  return mapUserRow(updated) as User;
+  params.push(BigInt(userId));
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`,
+    ...params
+  );
+
+  // Return the full user record using the existing raw getter
+  const updated = await getUserById(userId);
+  return updated as User;
 }
 
 /**
@@ -99,14 +124,14 @@ export async function updateUserProfile(
  * Handles cascading deletes for all related user data
  */
 export async function deleteUser(userId: string): Promise<void> {
-  const userIdNum = parseInt(userId);
-  
+  const userIdNum = BigInt(userId);
+
   // Get user email first to clean up OTPs
   const user = await prisma.users.findUnique({
     where: { id: userIdNum },
     select: { email: true },
   });
-  
+
   // Use Prisma transaction to delete all user data atomically
   await prisma.$transaction(async (tx) => {
     // Delete user's data from all related tables
@@ -119,21 +144,24 @@ export async function deleteUser(userId: string): Promise<void> {
     await tx.reflective_account_forms.deleteMany({ where: { user_id: userIdNum } });
     await tx.appraisal_records.deleteMany({ where: { user_id: userIdNum } });
     await tx.user_calendars.deleteMany({ where: { user_id: userIdNum } });
-    await tx.user_calendars_old.deleteMany({ where: { user_id: userIdNum } });
+
+    // Explicitly handle BigInt conversion if needed for older table schemas
+    await tx.user_calendars_old.deleteMany({ where: { user_id: Number(userIdNum) as any } });
+
     await tx.personal_documents.deleteMany({ where: { user_id: userIdNum } });
-    await tx.user_documents.deleteMany({ where: { user_id: userIdNum } });
+    // await tx.user_documents.deleteMany({ where: { user_id: userIdNum } }); // Missing user_id column in schema
     await tx.addressbooks.deleteMany({ where: { user_id: userIdNum } });
     await tx.attendances.deleteMany({ where: { user_id: userIdNum } });
     await tx.discussions.deleteMany({ where: { user_id: userIdNum } });
     await tx.earnings.deleteMany({ where: { user_id: userIdNum } });
     await tx.logs.deleteMany({ where: { user_id: userIdNum } });
     await tx.notifications.deleteMany({ where: { user_id: userIdNum } });
-    
+
     // Clean up OTPs if user email exists
     if (user?.email) {
       await tx.email_otps.deleteMany({ where: { email: user.email } });
     }
-    
+
     // Finally delete the user
     await tx.users.delete({ where: { id: userIdNum } });
   });
@@ -175,7 +203,7 @@ export async function registerUser(email: string, passwordHash: string): Promise
   });
 
   return {
-    id: user.id,
+    id: Number(user.id),
     email: user.email,
   };
 }
@@ -186,9 +214,9 @@ export async function registerUser(email: string, passwordHash: string): Promise
 export async function updateOnboardingStep1(userId: string, data: OnboardingStep1Role): Promise<User> {
   // Store professional role in description field as JSON
   const description = JSON.stringify({ professionalRole: data.professional_role });
-  
+
   const updated = await prisma.users.update({
-    where: { id: parseInt(userId) },
+    where: { id: BigInt(userId) },
     data: {
       description,
       updated_at: new Date(),
@@ -202,8 +230,8 @@ export async function updateOnboardingStep1(userId: string, data: OnboardingStep
  * Update onboarding step 2: Personal details
  */
 export async function updateOnboardingStep2(userId: string, data: OnboardingStep2Personal): Promise<User> {
-  const userIdNum = parseInt(userId);
-  
+  const userIdNum = BigInt(userId);
+
   // Check if email is already taken by another user
   const existingUser = await prisma.users.findFirst({
     where: {
@@ -217,19 +245,16 @@ export async function updateOnboardingStep2(userId: string, data: OnboardingStep
     throw new ApiError(409, 'Email is already registered to another account');
   }
 
-  const updateData: any = {
-    name: data.name,
-    email: data.email,
-    mobile: data.phone_number,
-    updated_at: new Date(),
-  };
+  const updatedAt = new Date();
 
-  const updated = await prisma.users.update({
-    where: { id: userIdNum },
-    data: updateData,
-  });
+  // Skip Prisma validation for enum columns by using raw SQL update
+  await prisma.$executeRaw`
+    UPDATE users 
+    SET name = ${data.name}, email = ${data.email}, mobile = ${data.phone_number}, updated_at = ${updatedAt}
+    WHERE id = ${userIdNum}
+  `;
 
-  return mapUserRow(updated) as User;
+  return getUserById(userId) as any;
 }
 
 /**
@@ -262,15 +287,15 @@ export async function updateOnboardingStep3(userId: string, data: OnboardingStep
   // Store professional registrations, registration reference/pin, and brief description in description JSON
   // Get existing description to preserve other data (like professionalRole from step 1)
   const existingUser = await prisma.users.findUnique({
-    where: { id: parseInt(userId) },
+    where: { id: BigInt(userId) },
     select: { description: true },
   });
 
   let descriptionData: any = {};
   if (existingUser?.description) {
     try {
-      descriptionData = typeof existingUser.description === 'string' 
-        ? JSON.parse(existingUser.description) 
+      descriptionData = typeof existingUser.description === 'string'
+        ? JSON.parse(existingUser.description)
         : existingUser.description;
     } catch (e) {
       // If not JSON, start fresh but preserve any existing data if needed
@@ -293,7 +318,7 @@ export async function updateOnboardingStep3(userId: string, data: OnboardingStep
   updateData.description = JSON.stringify(descriptionData);
 
   const updated = await prisma.users.update({
-    where: { id: parseInt(userId) },
+    where: { id: BigInt(userId) },
     data: updateData,
   });
 
@@ -318,7 +343,7 @@ export async function updateOnboardingStep4(userId: string, data: OnboardingStep
   }
 
   const updated = await prisma.users.update({
-    where: { id: parseInt(userId) },
+    where: { id: BigInt(userId) },
     data: updateData,
   });
 
@@ -330,7 +355,7 @@ export async function updateOnboardingStep4(userId: string, data: OnboardingStep
  */
 export async function getRegistrationProgress(userId: string): Promise<RegistrationProgress> {
   const user = await prisma.users.findUnique({
-    where: { id: parseInt(userId) },
+    where: { id: BigInt(userId) },
     select: {
       description: true,
       name: true,
@@ -397,7 +422,7 @@ export async function getRegistrationProgress(userId: string): Promise<Registrat
  */
 export async function getOnboardingData(userId: string) {
   const user = await prisma.users.findUnique({
-    where: { id: parseInt(userId) },
+    where: { id: BigInt(userId) },
     select: {
       description: true,
       name: true,
@@ -424,8 +449,8 @@ export async function getOnboardingData(userId: string) {
   let descriptionData: any = {};
   if (user.description) {
     try {
-      descriptionData = typeof user.description === 'string' 
-        ? JSON.parse(user.description) 
+      descriptionData = typeof user.description === 'string'
+        ? JSON.parse(user.description)
         : user.description;
     } catch (e) {
       // If not JSON, use empty object
@@ -438,10 +463,10 @@ export async function getOnboardingData(userId: string) {
   const scopeOfPractice = user.scope_practice !== null ? String(user.scope_practice) : undefined;
 
   // Parse professional registrations (stored as comma-separated string in description)
-  const professionalRegistrations = descriptionData.professionalRegistrations 
-    ? (typeof descriptionData.professionalRegistrations === 'string' 
-        ? descriptionData.professionalRegistrations.split(',').filter(Boolean)
-        : descriptionData.professionalRegistrations)
+  const professionalRegistrations = descriptionData.professionalRegistrations
+    ? (typeof descriptionData.professionalRegistrations === 'string'
+      ? descriptionData.professionalRegistrations.split(',').filter(Boolean)
+      : descriptionData.professionalRegistrations)
     : [];
 
   return {
@@ -471,4 +496,13 @@ export async function getOnboardingData(userId: string) {
       subscriptionTier: user.subscription_tier || null,
     },
   };
+}
+
+/**
+ * Update user profile image URL
+ */
+export async function updateUserImage(userId: string, imageUrl: string): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE users SET image = ${imageUrl}, updated_at = ${new Date()} WHERE id = ${BigInt(userId)}
+  `;
 }

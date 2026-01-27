@@ -24,7 +24,7 @@ export interface OfflineData {
 async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!db) {
     db = await SQLite.openDatabaseAsync(DB_NAME);
-    
+
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS offline_operations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +97,7 @@ export async function getPendingOperations(): Promise<OfflineOperation[]> {
   }));
 }
 
-export async function updateOperationStatus(id: number, status: 'syncing' | 'synced' | 'failed', retryCount?: number): Promise<void> {
+export async function updateOperationStatus(id: number, status: 'pending' | 'syncing' | 'synced' | 'failed', retryCount?: number): Promise<void> {
   const database = await getDatabase();
   if (retryCount !== undefined) {
     await database.runAsync(
@@ -160,4 +160,20 @@ export async function getOperationCount(): Promise<number> {
     'SELECT COUNT(*) as count FROM offline_operations WHERE status = "pending" OR status = "failed"'
   );
   return result?.count || 0;
+}
+
+export async function queueOperation(
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  endpoint: string,
+  data?: any,
+  headers?: Record<string, string>
+): Promise<void> {
+  await saveOfflineOperation({
+    method,
+    endpoint,
+    data,
+    headers,
+    timestamp: Date.now(),
+    retryCount: 0,
+  });
 }

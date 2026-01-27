@@ -75,40 +75,65 @@ export async function createCalendarEvent(
   userId: string,
   data: CreateCalendarEvent
 ): Promise<CalendarEvent> {
+  // Validate and normalize inputs early to return helpful errors instead of raw 500s
+  if (!userId) {
+    throw new ApiError(400, 'Missing userId');
+  }
+
+  let userBigInt: bigint;
+  try {
+    userBigInt = BigInt(userId);
+  } catch (e) {
+    throw new ApiError(400, 'Invalid userId');
+  }
+
   const eventDate = new Date(data.date);
+  if (Number.isNaN(eventDate.getTime())) {
+    throw new ApiError(400, 'Invalid date format');
+  }
+
   const endDate = data.endDate ? new Date(data.endDate) : null;
+  if (endDate && Number.isNaN(endDate.getTime())) {
+    throw new ApiError(400, 'Invalid endDate format');
+  }
 
-  const event = await prisma.user_calendars.create({
-    data: {
-      user_id: BigInt(userId),
-      type: mapTypeToDb(data.type),
-      title: data.title,
-      date: eventDate,
-      end_date: endDate,
-      start_time: data.startTime || null,
-      end_time: data.endTime || null,
-      venue: data.location || null,
-      invite: data.invite || null,
-      status: '1', // Active
-    },
-  });
+  try {
+    const event = await prisma.user_calendars.create({
+      data: {
+        user_id: userBigInt,
+        type: mapTypeToDb(data.type),
+        title: data.title,
+        date: eventDate,
+        end_date: endDate,
+        start_time: data.startTime || null,
+        end_time: data.endTime || null,
+        venue: data.location || null,
+        invite: data.invite || null,
+        status: 'one', // Active (mapped enum value)
+      },
+    });
 
-  return {
-    id: event.id.toString(),
-    userId: event.user_id.toString(),
-    type: mapEventType(event.type),
-    title: event.title,
-    description: null, // Not in schema, but keeping for compatibility
-    date: event.date,
-    endDate: event.end_date,
-    startTime: event.start_time,
-    endTime: event.end_time,
-    location: event.venue,
-    invite: event.invite,
-    status: event.status,
-    createdAt: event.created_at,
-    updatedAt: event.updated_at,
-  };
+    return {
+      id: event.id.toString(),
+      userId: event.user_id.toString(),
+      type: mapEventType(event.type),
+      title: event.title,
+      description: data.description ?? null,
+      date: event.date,
+      endDate: event.end_date,
+      startTime: event.start_time,
+      endTime: event.end_time,
+      location: event.venue,
+      invite: event.invite,
+      status: event.status,
+      createdAt: event.created_at,
+      updatedAt: event.updated_at,
+    };
+  } catch (err: any) {
+    // Convert DB errors into ApiError with a safe message to avoid leaking internals
+    console.error('Prisma error creating calendar event:', err);
+    throw new ApiError(500, 'Failed to create calendar event');
+  }
 }
 
 /**

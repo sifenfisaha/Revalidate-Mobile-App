@@ -10,18 +10,18 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { isDark } = useThemeStore();
   const { isPremium } = usePremium();
-  
+
   const activeColor = isPremium ? '#D4AF37' : '#2B5F9E';
-  
+
   // Calculate consistent spacing for both platforms
-  const bottomPadding = Platform.OS === 'ios' 
+  const bottomPadding = Platform.OS === 'ios'
     ? Math.max(insets.bottom, 8) + 4  // iOS: safe area + 4px
     : 8;  // Android: fixed 8px
-  
+
   const tabBarHeight = Platform.OS === 'ios'
     ? 70 + bottomPadding  // iOS: 70px content + bottom padding
     : 70 + bottomPadding;  // Android: same for consistency
-  
+
   return (
     <Tabs
       screenOptions={{
@@ -29,11 +29,11 @@ export default function TabsLayout() {
         tabBarActiveTintColor: activeColor,
         tabBarInactiveTintColor: isDark ? '#6B7280' : '#9CA3AF',
         tabBarStyle: {
-          backgroundColor: Platform.OS === 'ios' 
+          backgroundColor: Platform.OS === 'ios'
             ? (isDark ? 'rgba(11, 18, 32, 0.8)' : 'rgba(255, 255, 255, 0.8)')
             : (isDark ? '#0B1220' : '#FFFFFF'),
           borderTopWidth: isPremium ? 2 : 1,
-          borderTopColor: isPremium 
+          borderTopColor: isPremium
             ? (isDark ? '#D4AF37' : '#D4AF37')
             : (isDark ? '#1F2937' : '#E5E7EB'),
           height: tabBarHeight,
@@ -69,21 +69,21 @@ export default function TabsLayout() {
         tabBarShowLabel: true,
       }}
     >
-      <Tabs.Screen 
-        name="home/index" 
-        options={{ 
+      <Tabs.Screen
+        name="home/index"
+        options={{
           title: 'Home',
           tabBarIcon: ({ focused }) => (
-            <MaterialIcons 
-              name="home" 
-              size={28} 
-              color={focused ? activeColor : '#9CA3AF'} 
+            <MaterialIcons
+              name="home"
+              size={28}
+              color={focused ? activeColor : '#9CA3AF'}
             />
           ),
           tabBarLabel: ({ focused }) => (
-            <Text 
-              style={{ 
-                fontSize: 11, 
+            <Text
+              style={{
+                fontSize: 11,
                 fontWeight: focused ? '700' : '500',
                 color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
@@ -95,21 +95,21 @@ export default function TabsLayout() {
         }}
       />
 
-      <Tabs.Screen 
-        name="calendar/index" 
-        options={{ 
+      <Tabs.Screen
+        name="calendar/index"
+        options={{
           title: 'Calendar',
           tabBarIcon: ({ focused }) => (
-            <MaterialIcons 
-              name="calendar-month" 
-              size={28} 
-              color={focused ? activeColor : '#9CA3AF'} 
+            <MaterialIcons
+              name="calendar-month"
+              size={28}
+              color={focused ? activeColor : '#9CA3AF'}
             />
           ),
           tabBarLabel: ({ focused }) => (
-            <Text 
-              style={{ 
-                fontSize: 11, 
+            <Text
+              style={{
+                fontSize: 11,
                 fontWeight: focused ? '700' : '500',
                 color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
@@ -121,21 +121,21 @@ export default function TabsLayout() {
         }}
       />
 
-      <Tabs.Screen 
-        name="gallery/index" 
-        options={{ 
+      <Tabs.Screen
+        name="gallery/index"
+        options={{
           title: 'Gallery',
           tabBarIcon: ({ focused }) => (
-            <MaterialIcons 
-              name="photo-library" 
-              size={28} 
-              color={focused ? activeColor : '#9CA3AF'} 
+            <MaterialIcons
+              name="photo-library"
+              size={28}
+              color={focused ? activeColor : '#9CA3AF'}
             />
           ),
           tabBarLabel: ({ focused }) => (
-            <Text 
-              style={{ 
-                fontSize: 11, 
+            <Text
+              style={{
+                fontSize: 11,
                 fontWeight: focused ? '700' : '500',
                 color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
@@ -146,22 +146,22 @@ export default function TabsLayout() {
           ),
         }}
       />
-      
-      <Tabs.Screen 
-        name="profile/index" 
-        options={{ 
+
+      <Tabs.Screen
+        name="profile/index"
+        options={{
           title: 'Profile',
           tabBarIcon: ({ focused }) => (
-            <MaterialIcons 
-              name="person" 
-              size={28} 
-              color={focused ? activeColor : '#9CA3AF'} 
+            <MaterialIcons
+              name="person"
+              size={28}
+              color={focused ? activeColor : '#9CA3AF'}
             />
           ),
           tabBarLabel: ({ focused }) => (
-            <Text 
-              style={{ 
-                fontSize: 11, 
+            <Text
+              style={{
+                fontSize: 11,
                 fontWeight: focused ? '700' : '500',
                 color: focused ? activeColor : '#9CA3AF',
                 marginTop: 4,
@@ -172,7 +172,7 @@ export default function TabsLayout() {
           ),
         }}
       />
-      
+
       {/* Hide these screens from tab bar */}
       <Tabs.Screen name="workinghours/index" options={{ href: null }} />
       <Tabs.Screen name="workinghours/[id]" options={{ href: null }} />
@@ -186,6 +186,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="profile/settings" options={{ href: null }} />
       <Tabs.Screen name="notifications/index" options={{ href: null }} />
       <Tabs.Screen name="calendar/all-events" options={{ href: null }} />
+      <Tabs.Screen name="gallery/general" options={{ href: null }} />
+      <Tabs.Screen name="appraisal/index" options={{ href: null }} />
     </Tabs>
   );
 }

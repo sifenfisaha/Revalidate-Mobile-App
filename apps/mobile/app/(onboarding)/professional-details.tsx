@@ -124,6 +124,8 @@ export default function ProfessionalDetails() {
     const [isLoading, setIsLoading] = useState(false);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [workSettingsOptions, setWorkSettingsOptions] = useState(() => config.workSettings);
+    // Do not use mocked defaults for scope; initialize empty and populate from API response only
+    const [scopeOptions, setScopeOptions] = useState<any[]>(() => []);
     const [showWorkSettingModal, setShowWorkSettingModal] = useState(false);
     const [showScopeModal, setShowScopeModal] = useState(false);
     const [showProfessionalRegistrationsModal, setShowProfessionalRegistrationsModal] = useState(false);
@@ -218,10 +220,9 @@ export default function ProfessionalDetails() {
                     // Use profile/work endpoint which returns [{id,name,status}]
                     const workResp = await apiService.get<any>('/api/v1/profile/work', token);
                     const items = Array.isArray(workResp) ? workResp : workResp?.data ?? [];
-                    if (Array.isArray(items) && items.length > 0) {
+                    if (Array.isArray(items)) {
                         const mapped = items
                             .filter((ws: any) => {
-                                // Backend uses "one"/"zero" strings for status; accept 1/"one"/"1"
                                 const s = ws.status ?? ws.active ?? ws.enabled ?? 'one';
                                 return String(s) === 'one' || String(s) === '1' || s === 1;
                             })
@@ -231,9 +232,32 @@ export default function ProfessionalDetails() {
                                 const label = ws.name ?? ws.label ?? value;
                                 return { value, label };
                             });
-                        if (mapped.length > 0) {
-                            setWorkSettingsOptions(mapped);
-                        }
+                        // Apply mapped list (preserve API order). If API returned an array, use it even if empty.
+                        setWorkSettingsOptions(mapped);
+                    }
+                } catch (err) {
+                    // ignore and keep defaults
+                }
+
+                // Fetch dynamic scope-of-practice values from backend
+                try {
+                    const token = await AsyncStorage.getItem('authToken');
+                    const scopeResp = await apiService.get<any>('/api/v1/profile/scope', token);
+                    const items = Array.isArray(scopeResp) ? scopeResp : scopeResp?.data ?? [];
+                    if (Array.isArray(items)) {
+                        const mapped = items
+                            .filter((s: any) => {
+                                const st = s.status ?? s.active ?? s.enabled ?? 'one';
+                                return String(st) === 'one' || String(st) === '1' || st === 1;
+                            })
+                            .map((s: any) => {
+                                const rawValue = s.id ?? s.value ?? s.key ?? s.code ?? s.name;
+                                const value = rawValue !== undefined && rawValue !== null ? String(rawValue) : '';
+                                const label = s.name ?? s.label ?? value;
+                                return { value, label };
+                            });
+                        // Apply mapped list exactly as returned (preserve order and labels).
+                        setScopeOptions(mapped);
                     }
                 } catch (err) {
                     // ignore and keep defaults
@@ -255,7 +279,7 @@ export default function ProfessionalDetails() {
     const watchedProfessionalRegistrations = watch("professionalRegistrations") || [];
 
     const selectedWorkSetting = workSettingsOptions.find((w) => w.value === watchedWorkSetting)?.label ?? "Select work setting";
-    const selectedScope = config.scopeOfPractice.find((s) => s.value === watchedScope)?.label ?? "Select scope of practice";
+    const selectedScope = scopeOptions.find((s) => s.value === watchedScope)?.label ?? "Select scope of practice";
 
     const professionalRegistrationsOptions = [
         { value: "gmc", label: "GMC (General Medical Council)" },
@@ -1397,7 +1421,7 @@ export default function ProfessionalDetails() {
                             Select Scope of Practice
                         </Text>
                         <ScrollView>
-                            {config.scopeOfPractice.map((item) => (
+                            {scopeOptions.map((item) => (
                                 <TouchableOpacity
                                     key={item.value}
                                     onPress={() => {

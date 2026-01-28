@@ -186,7 +186,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   const pool = getMySQLPool();
   const [users] = await pool.execute(
     `SELECT id, email, password, reg_type, due_date, registration, 
-     work_settings, scope_practice, status 
+     work_settings, scope_practice, status, block_user 
      FROM users 
      WHERE LOWER(TRIM(email)) = LOWER(TRIM(?)) 
      LIMIT 1`,
@@ -198,8 +198,14 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const userData = users[0];
-  if (userData.status === '0') {
+  // Check block flag first: in this DB `block_user` === '0' means blocked, '1' means active
+  if (userData.block_user === '0' || userData.block_user === 0) {
     throw new ApiError(403, 'Account is blocked. Please contact support.');
+  }
+
+  // Legacy status field: '0' indicates inactive
+  if (userData.status === '0') {
+    throw new ApiError(403, 'Account is inactive. Please contact support.');
   }
 
   if (!userData.password) {

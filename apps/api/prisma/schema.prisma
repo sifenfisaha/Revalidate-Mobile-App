@@ -905,22 +905,40 @@ model types_feedback {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model user_calendars {
-  id         BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
-  user_id    BigInt                @db.UnsignedBigInt
-  type       String                @db.VarChar(200)
-  title      String                @db.VarChar(200)
-  date       DateTime              @db.Date
-  end_date   DateTime?             @db.Date
-  start_time String?               @db.VarChar(10)
-  end_time   String?               @db.VarChar(10)
+  id         BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id    BigInt                    @db.UnsignedBigInt
+  type       String                    @db.VarChar(200)
+  title      String                    @db.VarChar(200)
+  date       DateTime                  @db.Date
+  end_date   DateTime?                 @db.Date
+  start_time String?                   @db.VarChar(10)
+  end_time   String?                   @db.VarChar(10)
   venue      String?
   invite     String?
-  status     user_calendars_status @default(dbgenerated("0"))
-  created_at DateTime              @default(now()) @db.Timestamp(0)
-  updated_at DateTime              @default(now()) @db.Timestamp(0)
-  users      users                 @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "user_calendars_user_id_foreign")
+  status     user_calendars_status     @default(dbgenerated("0"))
+  created_at DateTime                  @default(now()) @db.Timestamp(0)
+  updated_at DateTime                  @default(now()) @db.Timestamp(0)
+  users      users                     @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "user_calendars_user_id_foreign")
+  attendees  user_calendar_attendees[]
 
   @@index([user_id], map: "user_calendars_user_id_foreign")
+}
+
+/// Attendees for user calendar events. Stores optional linked user or raw email.
+model user_calendar_attendees {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  event_id       BigInt   @db.UnsignedBigInt
+  user_id        BigInt?  @db.UnsignedBigInt
+  attendee_email String?  @db.VarChar(255)
+  status         String?  @db.VarChar(50)
+  created_at     DateTime @default(now()) @db.Timestamp(0)
+  updated_at     DateTime @default(now()) @db.Timestamp(0)
+
+  user_calendars user_calendars @relation(fields: [event_id], references: [id], onDelete: Cascade, map: "user_calendar_attendees_event_id_foreign")
+  users          users?         @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "user_calendar_attendees_user_id_foreign")
+
+  @@index([event_id], map: "user_calendar_attendees_event_id_foreign")
+  @@index([user_id], map: "user_calendar_attendees_user_id_foreign")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -1035,6 +1053,7 @@ model users {
   reflective_accounts              reflective_accounts[]
   timers                           timers[]
   user_calendars                   user_calendars[]
+  user_calendar_attendees          user_calendar_attendees[]
   user_feedback_logs               user_feedback_logs[]
   work_hours                       work_hours[]
   working_hours                    working_hours[]
@@ -1086,42 +1105,42 @@ model working_hours {
 
 enum designations_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum learning_methods_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum link_codes_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum other_healthcare_reg_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum reflective_codes_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum sources_feedback_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum types_feedback_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum criterias_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum feedback_log_feedback_type {
@@ -1131,187 +1150,187 @@ enum feedback_log_feedback_type {
 
 enum file_managers_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum mail_automations_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum mail_categories_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum mail_list_users_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum particulars_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum user_roles_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum portfolio_images_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum portfolios_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum sliders_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum sliderss_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum banners_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum brands_home {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum mail_templates_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum notifications_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum portfolios_home {
   zero @map("1")
-  one @map("0")
+  one  @map("0")
 }
 
 enum sliders_recyclebin_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum sliderss_recyclebin_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum testimonials_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum brands_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum notifications_recyclebin_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum personal_documents_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum testimonials_recyclebin_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum addressbooks_type {
   zero @map("1")
-  one @map("2")
+  one  @map("2")
 }
 
 enum attendances_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum discussions_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum menus_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum calender_bookings_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum discussions_reset {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum user_feedback_logs_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum addressbooks_recyclebin_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum categories_must_try_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum mail_campaigns_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum mail_settings_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum order_setups_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum reflective_account_forms_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum user_calendars_old_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum user_feedback_logs_reset {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_reg_type {
@@ -1325,32 +1344,32 @@ enum users_reg_type {
 
 enum categories_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum reflective_account_forms_reset {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum role_masters_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum user_calendars_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum sequences_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_user_type {
@@ -1364,52 +1383,52 @@ enum users_user_type {
 
 enum categories_recyclebin_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum working_hours_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum cpd_hours_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum working_hours_reset {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum cpd_hours_reset {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_gender {
   zero @map("1")
-  one @map("2")
+  one  @map("2")
 }
 
 enum hospitals_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_block_user {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_update_status {
   zero @map("1")
-  one @map("0")
+  one  @map("0")
 }
 
 enum company_setups_status {
   zero @map("0")
-  one @map("1")
+  one  @map("1")
 }
 
 enum users_premium_status {

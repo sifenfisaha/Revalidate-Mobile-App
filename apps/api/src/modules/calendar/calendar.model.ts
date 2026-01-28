@@ -320,3 +320,131 @@ export async function deleteCalendarEvent(
     where: { id: BigInt(eventId) },
   });
 }
+
+/**
+ * Invite attendees to an event. Attendees may be existing users (matched by email)
+ * or external emails. Creates attendee records and notifications for matched users.
+ */
+export type InviteInput = { userId?: string; email?: string };
+
+export async function inviteAttendees(
+  eventId: string,
+  organizerId: string,
+  attendees: InviteInput[]
+): Promise<any[]> {
+  const event = await prisma.user_calendars.findFirst({ where: { id: BigInt(eventId), user_id: BigInt(organizerId) } });
+  if (!event) {
+    throw new ApiError(404, 'Calendar event not found');
+  }
+
+  const created: any[] = [];
+
+  for (const a of attendees) {
+    let user = null;
+
+    if (a.userId) {
+      try {
+        user = await prisma.users.findFirst({ where: { id: BigInt(a.userId) } });
+      } catch (e) {
+        user = null;
+      }
+    }
+
+    if (!user && a.email) {
+      user = await prisma.users.findFirst({ where: { email: a.email } });
+    }
+
+    const attendeeRecord = await prisma.user_calendar_attendees.create({
+      data: {
+        event_id: event.id,
+        user_id: user ? user.id : undefined,
+        attendee_email: user ? user.email : (a.email ?? null),
+        status: 'invited',
+      },
+    });
+
+    // create an in-app notification for matched users
+    try {
+      if (user) {
+        await prisma.notifications.create({
+          data: {
+            user_id: user.id,
+            title: 'Event invitation',
+            message: `You have been invited to ${event.title} on ${event.date.toISOString().split('T')[0]}`,
+            type: 'calendar',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to create notification for invite', err);
+    }
+
+    created.push({ id: attendeeRecord.id.toString(), userId: attendeeRecord.user_id?.toString() ?? null, email: attendeeRecord.attendee_email, status: attendeeRecord.status });
+  }
+
+  return created;
+}
+
+/**
+ * Copy an existing calendar event to a new date. Copies attendees.
+ */
+export async function copyCalendarEvent(
+  eventId: string,
+  userId: string,
+  newDateStr: string
+): Promise<CalendarEvent> {
+  const existing = await prisma.user_calendars.findFirst({ where: { id: BigInt(eventId), user_id: BigInt(userId) } });
+  if (!existing) {
+    throw new ApiError(404, 'Calendar event not found');
+  }
+
+  const newDate = new Date(newDateStr);
+  if (Number.isNaN(newDate.getTime())) {
+    throw new ApiError(400, 'Invalid date format');
+  }
+
+  const created = await prisma.user_calendars.create({
+    data: {
+      user_id: existing.user_id,
+      type: existing.type,
+      title: existing.title,
+      date: newDate,
+      end_date: existing.end_date,
+      start_time: existing.start_time,
+      end_time: existing.end_time,
+      venue: existing.venue,
+      invite: existing.invite,
+      status: existing.status,
+    },
+  });
+
+  // copy attendees
+  const attendees = await prisma.user_calendar_attendees.findMany({ where: { event_id: existing.id } });
+  for (const a of attendees) {
+    await prisma.user_calendar_attendees.create({
+      data: {
+        event_id: created.id,
+        user_id: a.user_id ?? undefined,
+        attendee_email: a.attendee_email ?? undefined,
+        status: a.status ?? 'invited',
+      },
+    });
+  }
+
+  return {
+    id: created.id.toString(),
+    userId: created.user_id.toString(),
+    type: mapEventType(created.type),
+    title: created.title,
+    description: null,
+    date: created.date,
+    endDate: created.end_date,
+    startTime: created.start_time,
+    endTime: created.end_time,
+    location: created.venue,
+    invite: created.invite,
+    status: created.status,
+    createdAt: created.created_at,
+    updatedAt: created.updated_at,
+  };
+}

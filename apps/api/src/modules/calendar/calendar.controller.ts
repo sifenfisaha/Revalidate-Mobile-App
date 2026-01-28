@@ -9,6 +9,8 @@ import {
   deleteCalendarEvent,
   CreateCalendarEvent,
   UpdateCalendarEvent,
+  inviteAttendees,
+  copyCalendarEvent,
 } from './calendar.model';
 import { z } from 'zod';
 
@@ -34,6 +36,18 @@ const updateEventSchema = z.object({
   endTime: z.preprocess((val) => (val === '' ? undefined : val), z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional()),
   location: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   invite: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+});
+
+const inviteSchema = z.object({
+  attendees: z.array(z.object({
+    userId: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+    email: z.preprocess((v) => (v === '' ? undefined : v), z.string().email().optional()),
+  })).min(1, 'At least one attendee required')
+    .refine(arr => arr.every(item => item.userId || item.email), { message: 'Each attendee must include userId or email' }),
+});
+
+const copySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
 });
 
 /**
@@ -211,4 +225,44 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
     success: true,
     message: 'Calendar event deleted successfully',
   });
+});
+
+/**
+ * Invite attendees to an event
+ * POST /api/v1/calendar/events/:id/invite
+ */
+export const invite = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
+  try {
+    const { attendees } = inviteSchema.parse(req.body) as { attendees: Array<{ userId?: string; email?: string }> };
+    const created = await inviteAttendees(req.params.id, req.user.userId, attendees);
+
+    res.json({ success: true, data: created });
+  } catch (err) {
+    console.error('Error in calendar.invite:', err);
+    throw err;
+  }
+});
+
+/**
+ * Copy an event to a new date
+ * POST /api/v1/calendar/events/:id/copy
+ */
+export const copy = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
+  try {
+    const { date } = copySchema.parse(req.body);
+    const event = await copyCalendarEvent(req.params.id, req.user.userId, date);
+
+    res.status(201).json({ success: true, data: formatEventResponse(event) });
+  } catch (err) {
+    console.error('Error in calendar.copy:', err);
+    throw err;
+  }
 });

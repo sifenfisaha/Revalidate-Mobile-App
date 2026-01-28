@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { prisma } from '../../lib/prisma';
+import { updateUsersWithFallback } from '../../lib/prisma-fallback';
 import { JWT_CONFIG } from '../../config/env';
 import { asyncHandler } from '../../common/middleware/async-handler';
 import { ApiError } from '../../common/middleware/error-handler';
@@ -116,17 +117,10 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 
   if (existingUser && existingUser.status === 'zero') {
     // User exists but is unverified - update password and resend OTP
-    user = await prisma.users.update({
-      where: { id: existingUser.id },
-      data: {
-        password: passwordHash,
-        updated_at: new Date(),
-      },
-      select: {
-        id: true,
-        email: true,
-      },
-    });
+    // Use fallback updater to avoid Prisma enum parsing issues on returned rows
+    // (will perform raw UPDATE if Prisma update fails)
+    const updated = await updateUsersWithFallback(existingUser.id, { password: passwordHash, updated_at: new Date() }, true);
+    user = updated || { id: existingUser.id, email: validated.email };
   } else {
     // Create new user
     user = await prisma.users.create({
@@ -420,13 +414,7 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
 
   const newPasswordHash = await hashPassword(validated.newPassword);
 
-  await prisma.users.update({
-    where: { id: parseInt(req.user.userId) },
-    data: {
-      password: newPasswordHash,
-      updated_at: new Date(),
-    },
-  });
+  await updateUsersWithFallback(parseInt(req.user.userId), { password: newPasswordHash, updated_at: new Date() }, false);
 
   res.json(serializeBigInt({
     success: true,
@@ -471,13 +459,7 @@ export const verifyEmailOTP = asyncHandler(async (req: Request, res: Response) =
   }
 
   // Update user status from 'zero' to 'one' (activate account)
-  await prisma.users.update({
-    where: { id: user.id },
-    data: {
-      status: 'one',
-      updated_at: new Date(),
-    },
-  });
+  await updateUsersWithFallback(user.id, { status: 'one', updated_at: new Date() }, false);
 
   res.json(serializeBigInt({
     success: true,
@@ -560,13 +542,7 @@ export const resetPasswordWithOTP = asyncHandler(async (req: Request, res: Respo
   const newPasswordHash = await hashPassword(validated.newPassword);
 
   // Update user password
-  await prisma.users.update({
-    where: { id: user.id },
-    data: {
-      password: newPasswordHash,
-      updated_at: new Date(),
-    },
-  });
+  await updateUsersWithFallback(user.id, { password: newPasswordHash, updated_at: new Date() }, false);
 
   res.json(serializeBigInt({
     success: true,

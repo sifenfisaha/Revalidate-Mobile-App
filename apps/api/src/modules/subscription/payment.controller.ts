@@ -15,7 +15,7 @@ import {
   stripe,
 } from './stripe.service';
 import { STRIPE_CONFIG } from '../../config/env';
-import { prisma } from '../../lib/prisma';
+import { updateUsersWithFallback } from '../../lib/prisma-fallback';
 import Stripe from 'stripe';
 import { z } from 'zod';
 import { logger } from '../../common/logger';
@@ -105,13 +105,7 @@ export const confirmPaymentHandler = asyncHandler(async (req: Request, res: Resp
 
     // Update user subscription based on subscription status
     const status = subscription.status === 'active' || subscription.status === 'trialing' ? 'active' : 'inactive';
-    await prisma.users.update({
-      where: { id: parseInt(req.user.userId) },
-      data: {
-        subscription_tier: 'premium',
-        subscription_status: status as any,
-      },
-    });
+    await updateUsersWithFallback(parseInt(req.user.userId), { subscription_tier: 'premium', subscription_status: status as any }, false);
 
     res.json({
       success: true,

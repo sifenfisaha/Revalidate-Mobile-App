@@ -74,7 +74,10 @@ export async function updateUserProfile(
     updateData.due_date = dbUpdates.due_date;
   }
   if (dbUpdates.reg_type !== undefined) {
-    updateData.reg_type = dbUpdates.reg_type;
+    const regType = String(dbUpdates.reg_type ?? '').trim();
+    if (regType !== '') {
+      updateData.reg_type = regType;
+    }
   }
   if (dbUpdates.work_settings !== undefined) {
     updateData.work_settings = dbUpdates.work_settings || null;
@@ -215,15 +218,14 @@ export async function updateOnboardingStep1(userId: string, data: OnboardingStep
   // Store professional role in description field as JSON
   const description = JSON.stringify({ professionalRole: data.professional_role });
 
-  const updated = await prisma.users.update({
-    where: { id: BigInt(userId) },
-    data: {
-      description,
-      updated_at: new Date(),
-    },
-  });
+  // Use raw SQL update to avoid Prisma attempting to parse enum columns
+  // (some legacy rows contain invalid enum values which cause Prisma to throw
+  // when returning the updated object). Then return the user via raw getter.
+  await prisma.$executeRaw`
+    UPDATE users SET description = ${description}, updated_at = ${new Date()} WHERE id = ${BigInt(userId)}
+  `;
 
-  return mapUserRow(updated) as User;
+  return getUserById(userId) as Promise<User>;
 }
 
 /**
@@ -317,12 +319,22 @@ export async function updateOnboardingStep3(userId: string, data: OnboardingStep
   // Store as JSON string (preserves professionalRole from step 1 and adds new fields)
   updateData.description = JSON.stringify(descriptionData);
 
-  const updated = await prisma.users.update({
-    where: { id: BigInt(userId) },
-    data: updateData,
+  // Use raw SQL update to avoid Prisma enum parsing errors for legacy/invalid enum values
+  const setClauses3: string[] = [];
+  const params3: any[] = [];
+  Object.entries(updateData).forEach(([key, value]) => {
+    setClauses3.push(`${key} = ?`);
+    params3.push(value);
   });
+  params3.push(BigInt(userId));
 
-  return mapUserRow(updated) as User;
+  await prisma.$executeRawUnsafe(
+    `UPDATE users SET ${setClauses3.join(', ')} WHERE id = ?`,
+    ...params3
+  );
+
+  const updatedRow3 = await getUserById(userId);
+  return updatedRow3 as User;
 }
 
 /**
@@ -342,12 +354,22 @@ export async function updateOnboardingStep4(userId: string, data: OnboardingStep
     updateData.trial_ends_at = trialEndsAt;
   }
 
-  const updated = await prisma.users.update({
-    where: { id: BigInt(userId) },
-    data: updateData,
+  // Use raw SQL update to avoid Prisma enum parsing errors for legacy/invalid enum values
+  const setClauses4: string[] = [];
+  const params4: any[] = [];
+  Object.entries(updateData).forEach(([key, value]) => {
+    setClauses4.push(`${key} = ?`);
+    params4.push(value);
   });
+  params4.push(BigInt(userId));
 
-  return mapUserRow(updated) as User;
+  await prisma.$executeRawUnsafe(
+    `UPDATE users SET ${setClauses4.join(', ')} WHERE id = ?`,
+    ...params4
+  );
+
+  const updatedRow4 = await getUserById(userId);
+  return updatedRow4 as User;
 }
 
 /**

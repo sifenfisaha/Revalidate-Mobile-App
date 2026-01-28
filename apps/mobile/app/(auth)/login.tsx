@@ -110,23 +110,26 @@ export default function Login() {
                 throw new Error("Invalid response from server");
             }
         } catch (error: unknown) {
-            // Handle error
+            // Handle error — prefer server-provided message when available
             let errorMessage = "Invalid email or password. Please try again.";
-            
-            if (error instanceof Error) {
-                // Extract error message from API response
-                if (error.message.includes("401") || error.message.includes("Invalid")) {
-                    errorMessage = "Invalid email or password. Please check your credentials.";
-                } else if (error.message.includes("403")) {
-                    errorMessage = "Account is inactive. Please contact support.";
-                } else if (error.message.includes("404")) {
-                    errorMessage = "User not found. Please register first.";
-                } else {
-                    errorMessage = error.message;
-                }
+
+            const anyErr = error as any;
+            const serverMessage = anyErr?.response?.data?.message || anyErr?.response?.data?.error || anyErr?.message || '';
+            const msg = String(serverMessage).toLowerCase();
+
+            if (msg.includes('blocked')) {
+                errorMessage = 'Account is blocked. Please contact support.';
+            } else if (msg.includes('inactive')) {
+                errorMessage = 'Account is inactive. Please contact support.';
+            } else if (msg.includes('401') || msg.includes('invalid')) {
+                errorMessage = 'Invalid email or password. Please check your credentials.';
+            } else if (msg.includes('404') || msg.includes('not found')) {
+                errorMessage = 'User not found. Please register first.';
+            } else if (serverMessage) {
+                errorMessage = String(serverMessage);
             }
-            
-            showToast.error(errorMessage, "Login Failed");
+
+            showToast.error(errorMessage, 'Login Failed');
         } finally {
             setIsLoading(false);
         }

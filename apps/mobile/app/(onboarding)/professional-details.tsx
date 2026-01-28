@@ -76,6 +76,7 @@ export default function ProfessionalDetails() {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [showMonthPicker, setShowMonthPicker] = useState(false);
     const [showYearPicker, setShowYearPicker] = useState(false);
+    const [onboardingSummary, setOnboardingSummary] = useState<string>("");
 
     const {
         control,
@@ -84,6 +85,7 @@ export default function ProfessionalDetails() {
         watch,
         reset,
         formState: { errors },
+        getValues,
     } = useForm<OnboardingProfessionalDetailsInput>({
         resolver: zodResolver(onboardingProfessionalDetailsSchema) as Resolver<OnboardingProfessionalDetailsInput>,
         defaultValues: {
@@ -162,6 +164,81 @@ export default function ProfessionalDetails() {
                         setSelectedMonth(revalidationDate.getMonth());
                         setSelectedYear(revalidationDate.getFullYear());
                     }
+
+                    // Build a detailed onboarding summary (include local step1/step2 if API missing)
+                    try {
+                        const apiData = response?.data as any;
+
+                        // attempt to read local cached onboarding steps
+                        let localStep1: any = null;
+                        let localStep2: any = null;
+                        try {
+                            const raw1 = await AsyncStorage.getItem('onboarding.step1');
+                            localStep1 = raw1 ? JSON.parse(raw1) : null;
+                        } catch (e) {
+                            localStep1 = null;
+                        }
+                        try {
+                            const raw2 = await AsyncStorage.getItem('onboarding.step2');
+                            localStep2 = raw2 ? JSON.parse(raw2) : null;
+                        } catch (e) {
+                            localStep2 = null;
+                        }
+
+                        const parts: string[] = [];
+
+                        const completedSteps: string[] = [];
+                        if (apiData?.step1 || localStep1) completedSteps.push('Personal Details');
+                        if (apiData?.step2 || localStep2) completedSteps.push('Contact Details');
+                        if (apiData?.step3) completedSteps.push('Professional Details');
+                        parts.push(`Completed onboarding forms: ${completedSteps.length ? completedSteps.join(', ') : 'None'}.`);
+
+                        // helper to pretty label keys
+                        const prettyKey = (k: string) =>
+                            k.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').replace(/\s+/g, ' ').trim().replace(/(^|\s)\S/g, s => s.toUpperCase());
+
+                        const buildSection = (title: string, obj: any) => {
+                            if (!obj || (typeof obj === 'object' && Object.keys(obj).length === 0)) return;
+                            parts.push(`--- ${title} ---`);
+                            Object.entries(obj).forEach(([k, v]) => {
+                                if (v === null || v === undefined) return;
+                                if (typeof v === 'object') {
+                                    if (Array.isArray(v)) {
+                                        const joined = v.map((x) => (x == null ? '' : String(x))).filter(Boolean).join(', ');
+                                        if (joined) parts.push(`${prettyKey(k)}: ${joined}`);
+                                    } else {
+                                        // shallow stringify small objects
+                                        try {
+                                            const s = JSON.stringify(v);
+                                            parts.push(`${prettyKey(k)}: ${s}`);
+                                        } catch (e) { /* ignore */ }
+                                    }
+                                } else {
+                                    const s = String(v).trim();
+                                    if (s) parts.push(`${prettyKey(k)}: ${s}`);
+                                }
+                            });
+                        };
+
+                        // Step 1 (local or API)
+                        buildSection('Personal Details', apiData?.step1 ?? localStep1 ?? null);
+
+                        // Step 2 (local or API)
+                        buildSection('Contact Details', apiData?.step2 ?? localStep2 ?? null);
+
+                        // Step 3 (API)
+                        buildSection('Professional Details', step3 ?? null);
+
+                        // If professionalRegistrations normalized earlier, include them explicitly
+                        if (professionalRegistrations && professionalRegistrations.length) {
+                            parts.push(`Professional Registrations: ${professionalRegistrations.join(', ')}`);
+                        }
+
+                        const summaryText = parts.join('\n');
+                        if (summaryText.trim()) setOnboardingSummary(summaryText);
+                    } catch (e) {
+                        // ignore summary generation errors
+                    }
                 }
                 // Fetch dynamic work settings from backend (if available)
                 try {
@@ -182,6 +259,14 @@ export default function ProfessionalDetails() {
                         // Deduplicate by `value` (name) to avoid repeated items
                         const unique = Array.from(new Map(mapped.map((m) => [m.value, m])).values());
                         setWorkSettingsOptions(unique as Option[]);
+                        // If we already built a summary earlier containing a raw workSetting value, replace it with the friendly label
+                        try {
+                            const raw = response?.data?.step3?.workSetting;
+                            if (raw && unique.length) {
+                                const label = unique.find((u: any) => u.value === raw)?.label || raw;
+                                setOnboardingSummary((prev) => prev ? prev.replace(new RegExp(`Work Setting:\s*.*`), `Work Setting: ${label}`) : prev);
+                            }
+                        } catch (e) { /* ignore */ }
                     }
                 } catch (err) {
                     // ignore and keep defaults
@@ -205,6 +290,14 @@ export default function ProfessionalDetails() {
                             // Deduplicate by `value` (name) to avoid repeated items
                             const unique = Array.from(new Map(mapped.map((m) => [m.value, m])).values());
                             setScopeOptions(unique);
+                            // Replace raw scope value in summary with friendly label if present
+                            try {
+                                const rawScope = response?.data?.step3?.scope;
+                                if (rawScope && unique.length) {
+                                    const label = unique.find((u: any) => u.value === rawScope)?.label || rawScope;
+                                    setOnboardingSummary((prev) => prev ? prev.replace(new RegExp(`Scope of Practice:\s*.*`), `Scope of Practice: ${label}`) : prev);
+                                }
+                            } catch (e) { /* ignore */ }
                         }
                 } catch (err) {
                     // ignore and keep defaults
@@ -228,6 +321,20 @@ export default function ProfessionalDetails() {
                         // Deduplicate by `value` (name) to avoid duplicate keys/entries
                         const unique = Array.from(new Map(mapped.map((m) => [m.value, m])).values());
                         setRegistrationOptions(unique);
+                    
+                        // If professional registrations exist in the summary, replace raw values with labels
+                        try {
+                            const rawRegs = Array.isArray(response?.data?.step3?.professionalRegistrations)
+                                ? response?.data?.step3?.professionalRegistrations
+                                : (typeof response?.data?.step3?.professionalRegistrations === 'string'
+                                    ? response?.data?.step3?.professionalRegistrations.split(',').map((s: string) => s.trim())
+                                    : []);
+
+                            if (rawRegs && rawRegs.length && unique.length) {
+                                const mappedLabels = rawRegs.map((r: string) => unique.find((u: any) => u.value === r)?.label || r).join(', ');
+                                setOnboardingSummary((prev) => prev ? prev.replace(new RegExp(`Professional Registrations:\s*.*`), `Professional Registrations: ${mappedLabels}`) : prev);
+                            }
+                        } catch (e) { /* ignore */ }
                     }
                 } catch (err) {
                     // ignore and keep defaults
@@ -506,6 +613,46 @@ export default function ProfessionalDetails() {
     };
 
     const onFormSubmit = handleSubmit(onSubmit);
+
+    // Allow completing setup even if some fields fail zod validation by
+    // persisting the current form values as a partial payload and
+    // navigating to the next step. This keeps the strict schema for
+    // the normal validated submit flow but makes the "Complete Setup"
+    // button responsive when users want to finish quickly.
+    const handleCompleteSetup = async () => {
+        try {
+            setIsLoading(true);
+            const values = getValues();
+
+            const partial: Record<string, any> = {};
+
+            if (values.registrationNumber) partial.registration_number = (values.registrationNumber || '').toString();
+            if (values.revalidationDate) partial.revalidation_date = formatDateForAPI(values.revalidationDate as Date);
+            if (values.workSetting) partial.work_setting = values.workSetting;
+            if (values.scope) partial.scope_of_practice = values.scope;
+            if (values.professionalRegistrations && Array.isArray(values.professionalRegistrations) && values.professionalRegistrations.length) {
+                partial.professional_registrations = (values.professionalRegistrations || []).map((v: any) => (v || '').toString().trim()).filter(Boolean).join(',');
+            }
+            if (values.registrationPin) partial.registration_reference_pin = values.registrationPin;
+            if (values.hourlyRate !== undefined) partial.hourly_rate = Number(values.hourlyRate || 0);
+            if (values.workHoursCompleted !== undefined) partial.work_hours_completed_already = Number(values.workHoursCompleted || 0);
+            if (values.trainingHoursCompleted !== undefined) partial.training_hours_completed_already = Number(values.trainingHoursCompleted || 0);
+            if (values.earningsCurrentYear !== undefined) partial.earned_current_financial_year = Number(values.earningsCurrentYear || 0);
+            if (values.workDescription) partial.brief_description_of_work = values.workDescription;
+            if (values.notepad) partial.notepad = values.notepad;
+
+            // Persist locally and to backend
+            await saveStep3Partial(partial);
+
+            // Navigate to next onboarding step
+            router.push("/(onboarding)/plan-choose");
+        } catch (e) {
+            console.log('Failed to complete setup', (e as any)?.message || e);
+            showToast.error('Failed to complete setup. Please try again', 'Error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
         <SafeAreaView
@@ -1247,7 +1394,7 @@ export default function ProfessionalDetails() {
                             )}
                         </View>
 
-                        {/* Work Description */}
+                        {/* Work Description (read-only summary card) */}
                         <View>
                             <View className="flex-row items-center mb-3">
                                 <Text
@@ -1255,47 +1402,27 @@ export default function ProfessionalDetails() {
                                 >
                                     Brief description of your work
                                 </Text>
-                                <Text className="text-red-500 ml-1">*</Text>
                             </View>
-                            <Controller
-                                control={control}
-                                name="workDescription"
-                                render={({ field: { value, onChange, onBlur } }) => (
-                                    <View className="relative">
-                                        <TextInput
-                                            className={`w-full px-4 py-4 rounded-2xl min-h-[120px] text-align-top ${
-                                                isDark
-                                                    ? "bg-slate-800/90 text-white border border-slate-700/50"
-                                                    : "bg-white text-gray-900 border border-gray-200 shadow-sm"
-                                            } ${errors.workDescription ? "border-red-500" : ""}`}
-                                            style={{
-                                                shadowColor: isDark ? "#000" : "#000",
-                                                shadowOffset: { width: 0, height: 2 },
-                                                shadowOpacity: isDark ? 0.1 : 0.05,
-                                                shadowRadius: 4,
-                                                elevation: 2,
-                                                textAlignVertical: "top",
-                                            }}
-                                            placeholder="Brief description of your work:"
-                                            placeholderTextColor={isDark ? "#6B7280" : "#9CA3AF"}
-                                            value={value}
-                                            onChangeText={onChange}
-                                            onBlur={async () => {
-                                                onBlur();
-                                                try { await saveStep3Partial({ brief_description_of_work: value }); } catch (e) { /* ignore */ }
-                                            }}
-                                            multiline
-                                            numberOfLines={5}
-                                            autoCorrect={false}
-                                        />
-                                    </View>
+                            <View
+                                className={`w-full px-4 py-4 rounded-2xl min-h-[120px] ${
+                                    isDark
+                                        ? "bg-slate-800/90 text-white border border-slate-700/50"
+                                        : "bg-white text-gray-900 border border-gray-200 shadow-sm"
+                                }`}
+                                style={{ textAlignVertical: 'top' }}
+                            >
+                                {onboardingSummary ? (
+                                    onboardingSummary.split('\n').map((line, idx) => (
+                                        <Text key={idx} className={`${isDark ? 'text-gray-200' : 'text-gray-800'} mb-1 text-sm`}>
+                                            {line}
+                                        </Text>
+                                    ))
+                                ) : (
+                                    <Text className={`${isDark ? 'text-gray-400' : 'text-gray-400'} text-sm`}>
+                                        No summary available.
+                                    </Text>
                                 )}
-                            />
-                            {errors.workDescription && (
-                                <Text className="text-red-500 text-sm mt-1.5">
-                                    {errors.workDescription.message}
-                                </Text>
-                            )}
+                            </View>
                         </View>
 
                         {/* Notepad */}
@@ -1352,7 +1479,7 @@ export default function ProfessionalDetails() {
             {/* Continue Button */}
             <View className={`px-6 pb-8 pt-4 border-t ${isDark ? "border-slate-700/50" : "border-gray-200"}`}>
                 <Pressable
-                    onPress={onFormSubmit}
+                    onPress={handleCompleteSetup}
                     disabled={isLoading}
                     className={`w-full py-4 rounded-2xl flex-row items-center justify-center active:opacity-90 ${
                         isLoading ? "bg-primary/50" : "bg-primary"

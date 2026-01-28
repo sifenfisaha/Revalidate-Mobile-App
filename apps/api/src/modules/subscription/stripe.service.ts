@@ -6,6 +6,7 @@
 import Stripe from 'stripe';
 import { STRIPE_CONFIG } from '../../config/env';
 import { prisma } from '../../lib/prisma';
+import { updateUsersWithFallback } from '../../lib/prisma-fallback';
 import { logger } from '../../common/logger';
 
 // Validate Stripe configuration
@@ -223,13 +224,7 @@ export async function handleSuccessfulPayment(
 ): Promise<void> {
   try {
     // Update user subscription to premium
-    await prisma.users.update({
-      where: { id: parseInt(userId) },
-      data: {
-        subscription_tier: 'premium',
-        subscription_status: 'active',
-      },
-    });
+    await updateUsersWithFallback(parseInt(userId), { subscription_tier: 'premium', subscription_status: 'active' }, false);
 
     logger.info(`User ${userId} subscription upgraded to premium after payment ${paymentIntentId}`);
   } catch (error: any) {
@@ -256,13 +251,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
         const session = event.data.object as Stripe.Checkout.Session;
         const sessionUserId = session.metadata?.userId;
         if (sessionUserId) {
-          await prisma.users.update({
-            where: { id: parseInt(sessionUserId) },
-            data: {
-              subscription_tier: 'premium',
-              subscription_status: 'active',
-            },
-          });
+          await updateUsersWithFallback(parseInt(sessionUserId), { subscription_tier: 'premium', subscription_status: 'active' }, false);
           logger.info(`User ${sessionUserId} subscription activated via checkout session`);
         }
         break;
@@ -273,13 +262,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
         const subUserId = subscription.metadata?.userId;
         if (subUserId) {
           const status = subscription.status === 'active' || subscription.status === 'trialing' ? 'active' : 'inactive';
-          await prisma.users.update({
-            where: { id: parseInt(subUserId) },
-            data: {
-              subscription_tier: 'premium',
-              subscription_status: status as any,
-            },
-          });
+          await updateUsersWithFallback(parseInt(subUserId), { subscription_tier: 'premium', subscription_status: status as any }, false);
           logger.info(`User ${subUserId} subscription ${subscription.status} - subscription ${subscription.id}`);
         }
         break;
@@ -288,13 +271,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
         const deletedSubscription = event.data.object as Stripe.Subscription;
         const deletedUserId = deletedSubscription.metadata?.userId;
         if (deletedUserId) {
-          await prisma.users.update({
-            where: { id: parseInt(deletedUserId) },
-            data: {
-              subscription_tier: 'free',
-              subscription_status: 'cancelled' as any,
-            },
-          });
+          await updateUsersWithFallback(parseInt(deletedUserId), { subscription_tier: 'free', subscription_status: 'cancelled' as any }, false);
           logger.info(`User ${deletedUserId} subscription cancelled - subscription ${deletedSubscription.id}`);
         }
         break;
@@ -305,13 +282,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
           const sub = await stripe.subscriptions.retrieve(invoice.subscription as string);
           const invoiceUserId = sub.metadata?.userId;
           if (invoiceUserId) {
-            await prisma.users.update({
-              where: { id: parseInt(invoiceUserId) },
-              data: {
-                subscription_tier: 'premium',
-                subscription_status: 'active' as any,
-              },
-            });
+            await updateUsersWithFallback(parseInt(invoiceUserId), { subscription_tier: 'premium', subscription_status: 'active' as any }, false);
             logger.info(`User ${invoiceUserId} subscription payment succeeded`);
           }
         }
@@ -323,12 +294,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
           const failedSub = await stripe.subscriptions.retrieve(failedInvoice.subscription as string);
           const failedUserId = failedSub.metadata?.userId;
           if (failedUserId) {
-            await prisma.users.update({
-              where: { id: parseInt(failedUserId) },
-              data: {
-                subscription_status: 'expired' as any,
-              },
-            });
+            await updateUsersWithFallback(parseInt(failedUserId), { subscription_status: 'expired' as any }, false);
             logger.info(`User ${failedUserId} subscription payment failed`);
           }
         }
